@@ -156,6 +156,13 @@ parseLineContents() {
             sed -i "$LINEBELOW"'s|^.*$|'"=${_linecontentbelow}"'|' "$queue_file"
             let LINE++;
             break
+        elif [[ "$_event" == "CREATE" && "$_state" == "(isfileisnotdir)" ]];then
+            # Contoh kasus:
+            # klik kanan pada windows explorer, new file.
+            ACTION='ssh_rsync'
+            ARGUMENT1="$_path"
+            sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
+            break
         elif [[ "$_event" == "MODIFY" && "$_state" == "(isfileisnotdir)" && "$_eventbelow" == "MODIFY" && "$_statebelow" == "(isfileisnotdir)" && "$_path" == "$_pathbelow" ]];then
             # Contoh kasus:
             # echo 'anu' > a.txt (file sudah ada sebelumnya)
