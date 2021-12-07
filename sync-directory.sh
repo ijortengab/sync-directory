@@ -16,6 +16,8 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --cluster-name=*|-c=*) cluster_name="${1#*=}"; shift ;;
         --cluster-name|-c) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then cluster_name="$2"; shift; fi; shift ;;
+        --exclude=*|-e=*) exclude+=("${1#*=}"); shift ;;
+        --exclude|-e) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then exclude+=("$2"); shift; fi; shift ;;
         --myname=*|-n=*) myname="${1#*=}"; shift ;;
         --myname|-n) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then myname="$2"; shift; fi; shift ;;
         --nodes-ini-file=*|-i=*) nodes_ini_file="${1#*=}"; shift ;;
@@ -31,9 +33,10 @@ _new_arguments=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -[^-]*) OPTIND=1
-            while getopts ":c:n:i:" opt; do
+            while getopts ":c:e:n:i:" opt; do
                 case $opt in
                     c) cluster_name="$OPTARG" ;;
+                    e) exclude+=("$OPTARG") ;;
                     n) myname="$OPTARG" ;;
                     i) nodes_ini_file="$OPTARG" ;;
                 esac
@@ -545,6 +548,7 @@ ISCYGWIN=
 if [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
     ISCYGWIN=1
 fi
+
 IFS=''
 inotifywait -q -e modify,create,delete,move -m -r --format "$format" "$object_watched" | while read -r LINE
 do
@@ -575,16 +579,26 @@ do
         # echo "  [debug] Process Continue." >> "$log_file"
     fi
 
-    FULLPATH="${DIR}/${FILE}"
+    ABSPATH="${DIR}/${FILE}"
+    RELPATH=$(echo "$ABSPATH" | sed "s|${mydirectory}||")
+    skip=
+    for i in "${exclude[@]}"; do
+        if [[ "$RELPATH" =~ $i ]];then
+            skip=1
+        fi
+    done
+    if [[ -n "$skip" ]];then
+        continue
+    fi
+
     echo "[directory] ${LINE}" >> "$log_file"
     echo -n "${EVENT} (" >> "$queue_file"
     # Terdapat bug/inkonsistensi. Sehingga perlu dibuat informasi
     # seperti 4 baris dibawah.
-    [ -f "$FULLPATH" ] && echo -n 'isfile' >> "$queue_file"
-    [ ! -f "$FULLPATH" ] && echo -n 'isnotfile' >> "$queue_file"
-    [ -d "$FULLPATH" ] && echo -n 'isdir' >> "$queue_file"
-    [ ! -d "$FULLPATH" ] && echo -n 'isnotdir' >> "$queue_file"
+    [ -f "$ABSPATH" ] && echo -n 'isfile' >> "$queue_file"
+    [ ! -f "$ABSPATH" ] && echo -n 'isnotfile' >> "$queue_file"
+    [ -d "$ABSPATH" ] && echo -n 'isdir' >> "$queue_file"
+    [ ! -d "$ABSPATH" ] && echo -n 'isnotdir' >> "$queue_file"
     echo -n ") " >> "$queue_file"
-    _relative=$(echo "$FULLPATH" | sed "s|${mydirectory}||")
-    echo "$_relative" >> "$queue_file"
+    echo "$RELPATH" >> "$queue_file"
 done
