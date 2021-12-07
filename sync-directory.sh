@@ -112,13 +112,13 @@ instance_dir="/dev/shm/${cluster_name}"; queue_file="${instance_dir}/_queue.txt"
 line_file="${instance_dir}/_line.txt"; log_file="${instance_dir}/_log.txt"
 command_file="${instance_dir}/_command.txt"
 # List action result:
-#1 rsyncfile
-#2 sshrmsomething
-#3 sshrenamefile
-#4 sshrenamedir
-#5 sshmkdir
-#6 sshmvfile
-#7 sshmvdir
+#1 ssh_rsync
+#2 ssh_rm
+#3 ssh_rename_file
+#4 ssh_rename_dir
+#5 ssh_mkdir
+#6 ssh_mv_file
+#7 ssh_mv_dir
 parseLineContents() {
     local LINEBELOW _linecontent _linecontentbelow
     # Jika "$line_file" kehapus, maka pastikan baris yang sudah di proses
@@ -147,7 +147,7 @@ parseLineContents() {
             # Contoh kasus:
             # touch a.txt (file belum ada sebelumnya)
             # echo 'anu' > a.txt (file belum ada sebelumnya)
-            ACTION='rsyncfile'
+            ACTION='ssh_rsync'
             ARGUMENT1="$_path"
             sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
             sed -i "$LINEBELOW"'s|^.*$|'"=${_linecontentbelow}"'|' "$queue_file"
@@ -156,7 +156,7 @@ parseLineContents() {
         elif [[ "$_event" == "MODIFY" && "$_state" == "(isfileisnotdir)" && "$_eventbelow" == "MODIFY" && "$_statebelow" == "(isfileisnotdir)" && "$_path" == "$_pathbelow" ]];then
             # Contoh kasus:
             # echo 'anu' > a.txt (file sudah ada sebelumnya)
-            ACTION='rsyncfile'
+            ACTION='ssh_rsync'
             ARGUMENT1="$_path"
             sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
             sed -i "$LINEBELOW"'s|^.*$|'"=${_linecontentbelow}"'|' "$queue_file"
@@ -165,7 +165,7 @@ parseLineContents() {
         elif [[ "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" && "$_eventbelow" == "CREATE,ISDIR" && "$_statebelow" == "(isnotfileisdir)" && $(basename "$_path") == $(basename "$_pathbelow") ]];then
             # Contoh kasus:
             # mv ini.d itu.d (directory itu.d sudah ada sebelumnya)
-            ACTION='sshmvdir'
+            ACTION='ssh_mv_dir'
             ARGUMENT1="$_path"
             ARGUMENT2="$_pathbelow"
             sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
@@ -175,7 +175,7 @@ parseLineContents() {
         elif [[ "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" && "$_eventbelow" == "CREATE" && "$_statebelow" == "(isfileisnotdir)" && $(basename "$_path") == $(basename "$_pathbelow") ]];then
             # Contoh kasus:
             # mv anu.txt itu.d (directory itu.d sudah ada sebelumnya)
-            ACTION='sshmvfile'
+            ACTION='ssh_mv_file'
             ARGUMENT1="$_path"
             ARGUMENT2="$_pathbelow"
             sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
@@ -185,14 +185,14 @@ parseLineContents() {
         elif [[ "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" ]];then
             # Contoh kasus:
             # rm a.txt (file sudah ada sebelumnya)
-            ACTION='sshrmsomething'
+            ACTION='ssh_rm'
             ARGUMENT1="$_path"
             sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
             break
         elif [[ "$_event" == "MODIFY" && "$_state" == "(isfileisnotdir)" ]];then
             # Contoh kasus:
             # echo 'anu' >> a.txt (file sudah ada sebelumnya)
-            ACTION='rsyncfile'
+            ACTION='ssh_rsync'
             ARGUMENT1="$_path"
             sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
             break
@@ -200,7 +200,7 @@ parseLineContents() {
             # Contoh kasus:
             # mkdir -p aa/bb (directory belum ada sebelumnya)
             # mkdir -p cc/dd/ee (directory belum ada sebelumnya)
-            ACTION='sshmkdir'
+            ACTION='ssh_mkdir'
             ARGUMENT1="$_pathbelow"
             # Coret satu dulu.
             sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
@@ -241,14 +241,14 @@ parseLineContents() {
             done
             break
         elif [[ "$_event" == "CREATE,ISDIR" && "$_state" == "(isnotfileisdir)" ]];then
-            ACTION='sshmkdir'
+            ACTION='ssh_mkdir'
             ARGUMENT1="$_path"
             sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
             break
         elif [[ "$_event" == "MOVED_FROM" && "$_state" == "(isnotfileisnotdir)" && "$_eventbelow" == "MOVED_TO,ISDIR" && "$_statebelow" == "(isnotfileisdir)" && ! "$_path" == "$_pathbelow" ]];then
             # Contoh kasus:
             # mv ini.d itu.d (directory itu.d belum ada sebelumnya)
-            ACTION='sshrenamedir'
+            ACTION='ssh_rename_dir'
             ARGUMENT1="$_path"
             ARGUMENT2="$_pathbelow"
             sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
@@ -258,7 +258,7 @@ parseLineContents() {
         elif [[ "$_event" == "MOVED_FROM" && "$_state" == "(isnotfileisnotdir)" && "$_eventbelow" == "MOVED_TO" && "$_statebelow" == "(isfileisnotdir)" && ! "$_path" == "$_pathbelow" ]];then
             # Contoh kasus:
             # mv ini.txt itu.txt (file itu.txt belum ada sebelumnya)
-            ACTION='sshrenamefile'
+            ACTION='ssh_rename_file'
             ARGUMENT1="$_path"
             ARGUMENT2="$_pathbelow"
             sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
@@ -299,167 +299,167 @@ doIt() {
         # echo "  [debug] \$basename2 ${basename2}" >> "$log_file"
         # echo "  [debug] \$temppath2 ${temppath2}" >> "$log_file"
         case "$style" in
-            rsyncfile) #1
+            ssh_rsync) #1
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
-    mkdir -p '"$dirpath1"';
-    touch '"$temppath1"';
-    rsync -T /tmp -avr '"${myname}:${mydirectory}${relativePath1}"' '"$fullpath1"'
+    mkdir -p "'"$dirpath1"'"
+    touch "'"$temppath1"'"
+    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${relativePath1}"'" "'"$fullpath1"'"
     sleep 1
-    rm -rf '"$temppath1"'
+    rm -rf "'"$temppath1"'"
     '
 EOL
                 screen -d -m \
 ssh "$hostname" '
-    mkdir -p '"$dirpath1"';
-    touch '"$temppath1"';
-    rsync -T /tmp -avr '"${myname}:${mydirectory}${relativePath1}"' '"$fullpath1"'
+    mkdir -p "'"$dirpath1"'"
+    touch "'"$temppath1"'"
+    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${relativePath1}"'" "'"$fullpath1"'"
     sleep 1
-    rm -rf '"$temppath1"'
+    rm -rf "'"$temppath1"'"
     '
                 ;;
-            sshrmsomething) #2
+            ssh_rm) #2
                 # Something bisa file atau direktori.
                 # Gunakan sleep untuk mengerem command remove file temp.
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
-    touch '"$temppath1"';
-    rm -rf '"$fullpath1"';
+    touch "'"$temppath1"'"
+    rm -rf "'"$fullpath1"'";
     sleep 1;
-    rm -rf '"$temppath1"'
+    rm -rf "'"$temppath1"'"
     '
 EOL
                 screen -d -m \
 ssh "$hostname" '
-    touch '"$temppath1"';
-    rm -rf '"$fullpath1"';
+    touch "'"$temppath1"'"
+    rm -rf "'"$fullpath1"'";
     sleep 1;
-    rm -rf '"$temppath1"'
+    rm -rf "'"$temppath1"'"
     '
                 ;;
-            sshrenamefile) #3
+            ssh_rename_file) #3
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
-    mkdir -p '"$dirpath1"';
-    touch '"$temppath1"';
-    rsync -T /tmp -avr '"${myname}:${mydirectory}${relativePath1}"' '"$fullpath1"';
+    mkdir -p "'"$dirpath1"'"
+    touch "'"$temppath1"'"
+    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${relativePath1}"'" "'"$fullpath1"'";
     sleep .5
-    mkdir -p '"$dirpath2"';
-    touch '"$temppath2"';
-    mv '"$fullpath1"' '"$fullpath2"'
+    mkdir -p "'"$dirpath2"'";
+    touch "'"$temppath2"'";
+    mv "'"$fullpath1"'" "'"$fullpath2"'"
     sleep 1
-    rm -rf '"$temppath1"'
-    rm -rf '"$temppath2"';
+    rm -rf "'"$temppath1"'"
+    rm -rf "'"$temppath2"'";
     '
 EOL
                 screen -d -m \
 ssh "$hostname" '
-    mkdir -p '"$dirpath1"';
-    touch '"$temppath1"';
-    rsync -T /tmp -avr '"${myname}:${mydirectory}${relativePath1}"' '"$fullpath1"';
+    mkdir -p "'"$dirpath1"'"
+    touch "'"$temppath1"'"
+    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${relativePath1}"'" "'"$fullpath1"'";
     sleep .5
-    mkdir -p '"$dirpath2"';
-    touch '"$temppath2"';
-    mv '"$fullpath1"' '"$fullpath2"'
+    mkdir -p "'"$dirpath2"'";
+    touch "'"$temppath2"'";
+    mv "'"$fullpath1"'" "'"$fullpath2"'"
     sleep 1
-    rm -rf '"$temppath1"'
-    rm -rf '"$temppath2"';
+    rm -rf "'"$temppath1"'"
+    rm -rf "'"$temppath2"'";
     '
                 ;;
-            sshrenamedir) #4
+            ssh_rename_dir) #4
                 # fullpath1 dipastikan ada dulu.
                 # fullpath2 dipastikan tidak ada dulu.
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
-    mkdir -p '"$fullpath1"';
-    touch '"$temppath1"';
-    touch '"$temppath2"';
-    mv '"$fullpath1"' '"$fullpath2"'
+    mkdir -p "'"$fullpath1"'";
+    touch "'"$temppath1"'"
+    touch "'"$temppath2"'";
+    mv "'"$fullpath1"'" "'"$fullpath2"'"
     sleep 1
-    rm -rf '"$temppath1"'
-    rm -rf '"$temppath2"';
+    rm -rf "'"$temppath1"'"
+    rm -rf "'"$temppath2"'";
     '
 EOL
                 screen -d -m \
 ssh "$hostname" '
-    mkdir -p '"$fullpath1"';
-    touch '"$temppath1"';
-    touch '"$temppath2"';
-    mv '"$fullpath1"' '"$fullpath2"'
+    mkdir -p "'"$fullpath1"'";
+    touch "'"$temppath1"'"
+    touch "'"$temppath2"'";
+    mv "'"$fullpath1"'" "'"$fullpath2"'"
     sleep 1
-    rm -rf '"$temppath1"'
-    rm -rf '"$temppath2"';
+    rm -rf "'"$temppath1"'"
+    rm -rf "'"$temppath2"'";
     '
                 ;;
-            sshmkdir) #5
+            ssh_mkdir) #5
                 # mkdir terlalu rumit dan njelimit.
                 # jadi kita biarkan terjadi efek berantai.
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
-    mkdir -p '"$fullpath1"';
+    mkdir -p "'"$fullpath1"'";
     '
 EOL
                 screen -d -m \
 ssh "$hostname" '
-    mkdir -p '"$fullpath1"';
+    mkdir -p "'"$fullpath1"'";
     '
                 ;;
-            sshmvfile) #6
+            ssh_mv_file) #6
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
-    mkdir -p '"$dirpath1"';
-    touch '"$temppath1"';
-    rsync -T /tmp -avr '"${myname}:${mydirectory}${relativePath2}"' '"$fullpath1"';
+    mkdir -p "'"$dirpath1"'"
+    touch "'"$temppath1"'"
+    rsync -T /tmp -s -avr '"${myname}:${mydirectory}${relativePath2}"' '"$fullpath1"';
     sleep 1
-    mkdir -p '"$dirpath2"';
-    touch '"$temppath2"';
-    mv '"$fullpath1"' '"$fullpath2"'
+    mkdir -p "'"$dirpath2"'";
+    touch "'"$temppath2"'";
+    mv "'"$fullpath1"'" "'"$fullpath2"'"
     sleep 1
-    rm -rf '"$temppath1"'
-    rm -rf '"$temppath2"';
+    rm -rf "'"$temppath1"'"
+    rm -rf "'"$temppath2"'";
     '
 EOL
                 screen -d -m \
 ssh "$hostname" '
-    mkdir -p '"$dirpath1"';
-    touch '"$temppath1"';
-    rsync -T /tmp -avr '"${myname}:${mydirectory}${relativePath2}"' '"$fullpath1"';
+    mkdir -p "'"$dirpath1"'"
+    touch "'"$temppath1"'"
+    rsync -T /tmp -s -avr '"${myname}:${mydirectory}${relativePath2}"' '"$fullpath1"';
     sleep 1
-    mkdir -p '"$dirpath2"';
-    touch '"$temppath2"';
-    mv '"$fullpath1"' '"$fullpath2"'
+    mkdir -p "'"$dirpath2"'";
+    touch "'"$temppath2"'";
+    mv "'"$fullpath1"'" "'"$fullpath2"'"
     sleep 1
-    rm -rf '"$temppath1"'
-    rm -rf '"$temppath2"';
+    rm -rf "'"$temppath1"'"
+    rm -rf "'"$temppath2"'";
     '
                 ;;
-            sshmvdir) #7
+            ssh_mv_dir) #7
                 # fullpath1 dipastikan ada dulu.
                 # fullpath2 dipastikan tidak ada dulu.
                 # dirpath2 dipastikan ada dulu.
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
-    mkdir -p '"$fullpath1"';
-    mkdir -p '"$dirpath2"';
-    touch '"$temppath1"';
-    touch '"$temppath2"';
-    mv '"$fullpath1"' '"$fullpath2"'
+    mkdir -p "'"$fullpath1"'";
+    mkdir -p "'"$dirpath2"'";
+    touch "'"$temppath1"'"
+    touch "'"$temppath2"'";
+    mv "'"$fullpath1"'" "'"$fullpath2"'"
     sleep 1
-    rm -rf '"$temppath1"'
-    rm -rf '"$temppath2"';
+    rm -rf "'"$temppath1"'"
+    rm -rf "'"$temppath2"'";
 done
     '
 EOL
                 screen -d -m \
 ssh "$hostname" '
-    mkdir -p '"$fullpath1"';
-    mkdir -p '"$dirpath2"';
-    touch '"$temppath1"';
-    touch '"$temppath2"';
-    mv '"$fullpath1"' '"$fullpath2"'
+    mkdir -p "'"$fullpath1"'";
+    mkdir -p "'"$dirpath2"'";
+    touch "'"$temppath1"'"
+    touch "'"$temppath2"'";
+    mv "'"$fullpath1"'" "'"$fullpath2"'"
     sleep 1
-    rm -rf '"$temppath1"'
-    rm -rf '"$temppath2"';
+    rm -rf "'"$temppath1"'"
+    rm -rf "'"$temppath2"'";
     done
     '
                 ;;
@@ -527,8 +527,8 @@ getPid() {
         IFS=$ifs
     fi
 }
-format='%e %w %f %T'
-command="${bin} -e modify,create,delete,move -m -r --format \"${format}\" ${object_watched}"
+format='<<%e>><<%w>><<%f>><<%T>>'
+command="${bin} -q -e modify,create,delete,move -m -r --format \"${format}\" ${object_watched}"
 pid=$(getPid inotifywait "$command")
 [ -n "$pid" ] && {
     echo "$pid" | xargs kill
@@ -541,8 +541,21 @@ pid=$(getPid inotifywait "$command")
 
 "$queue_watcher" "$cluster_name" "$myname" "$nodes_ini_file" &
 
-inotifywait -e modify,create,delete,move -m -r --format "$format" "$object_watched" | while read -r EVENT DIR FILE TIME
+ISCYGWIN=
+if [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
+    ISCYGWIN=1
+fi
+IFS=''
+inotifywait -q -e modify,create,delete,move -m -r --format "$format" "$object_watched" | while read -r LINE
 do
+    # echo "[debug] LINE: ${LINE}" >> "$log_file"
+    # Posisi paling kanan menyebabkan terdapat tambahan karakter \r (CR)
+    [ -n "$ISCYGWIN" ] && LINE=$(sed 's/\r$//' <<< "$LINE")
+    EVENT=$(sed -E 's|<<(.*)>><<(.*)>><<(.*)>><<(.*)>>|\1|' <<< "$LINE")
+    DIR=$(sed -E 's|<<(.*)>><<(.*)>><<(.*)>><<(.*)>>|\2|' <<< "$LINE")
+    [ -n "$ISCYGWIN" ] && DIR=$(cygpath "$DIR")
+    FILE=$(sed -E 's|<<(.*)>><<(.*)>><<(.*)>><<(.*)>>|\3|' <<< "$LINE")
+    TIME=$(sed -E 's|<<(.*)>><<(.*)>><<(.*)>><<(.*)>>|\4|' <<< "$LINE")
     # echo "[debug] EVENT: ${EVENT}" >> "$log_file"
     # echo "[debug] DIR: ${DIR}" >> "$log_file"
     # echo "[debug] FILE: ${FILE}" >> "$log_file"
@@ -550,11 +563,6 @@ do
         # echo "  [debug] Something happend with file temporary." >> "$log_file"
         # echo "  [debug] Process Stop." >> "$log_file"
         continue
-    fi
-    if [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
-        # Posisi paling kanan menyebabkan terdapat tambahan karakter \r (CR)
-        TIME=$(sed 's/\r$//' <<< "$TIME")
-        DIR=$(cygpath "$DIR")
     fi
     TEMPPATH="${DIR}/.${FILE}.ignore-this"
     # echo "[debug] TEMPPATH: ${TEMPPATH}" >> "$log_file"
@@ -568,7 +576,7 @@ do
     fi
 
     FULLPATH="${DIR}/${FILE}"
-    echo "[directory] $TIME - $EVENT - $FULLPATH" >> "$log_file"
+    echo "[directory] ${LINE}" >> "$log_file"
     echo -n "${EVENT} (" >> "$queue_file"
     # Terdapat bug/inkonsistensi. Sehingga perlu dibuat informasi
     # seperti 4 baris dibawah.
@@ -580,12 +588,3 @@ do
     _relative=$(echo "$FULLPATH" | sed "s|${mydirectory}||")
     echo "$_relative" >> "$queue_file"
 done
-
-# References:
-# Google: sed read ini file
-# # https://stackoverflow.com/a/22559504
-# # # https://gist.github.com/thomedes/6201620
-# Google: inotifywait example
-# # https://unix.stackexchange.com/q/323901
-# Google: sed change line number
-# # https://unix.stackexchange.com/a/70879
