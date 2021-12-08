@@ -352,7 +352,7 @@ ssh "$hostname" '
 ssh "$hostname" '
     mkdir -p "'"$dirpath1"'"
     touch "'"$temppath1"'"
-    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${relativePath1}"'" "'"$fullpath1"'";
+    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${relativePath2}"'" "'"$fullpath1"'";
     sleep .5
     mkdir -p "'"$dirpath2"'";
     touch "'"$temppath2"'";
@@ -366,7 +366,7 @@ EOL
 ssh "$hostname" '
     mkdir -p "'"$dirpath1"'"
     touch "'"$temppath1"'"
-    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${relativePath1}"'" "'"$fullpath1"'";
+    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${relativePath2}"'" "'"$fullpath1"'";
     sleep .5
     mkdir -p "'"$dirpath2"'";
     touch "'"$temppath2"'";
