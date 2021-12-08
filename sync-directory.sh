@@ -286,15 +286,15 @@ parseLineContents() {
 
 doIt() {
     style="$1"
-    relativePath1="$2"
-    relativePath2="$3"
+    uriPath1="$2"
+    uriPath2="$3"
     while IFS= read -r hostname; do
-        fullpath1="${DIRECTORIES[$hostname]}${relativePath1}"
+        fullpath1="${DIRECTORIES[$hostname]}${uriPath1}"
         dirpath1=$(dirname "$fullpath1")
         basename1=$(basename "$fullpath1")
         temppath1="${dirpath1}/.${basename1}.ignore-this"
-        [ -n "$relativePath2" ] && {
-            fullpath2="${DIRECTORIES[$hostname]}${relativePath2}"
+        [ -n "$uriPath2" ] && {
+            fullpath2="${DIRECTORIES[$hostname]}${uriPath2}"
             dirpath2=$(dirname "$fullpath2")
             basename2=$(basename "$fullpath2")
             temppath2="${dirpath2}/.${basename2}.ignore-this"
@@ -314,7 +314,7 @@ doIt() {
 ssh "$hostname" '
     mkdir -p "'"$dirpath1"'"
     touch "'"$temppath1"'"
-    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${relativePath1}"'" "'"$fullpath1"'"
+    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${uriPath1}"'" "'"$fullpath1"'"
     sleep 1
     rm -rf "'"$temppath1"'"
     '
@@ -323,7 +323,7 @@ EOL
 ssh "$hostname" '
     mkdir -p "'"$dirpath1"'"
     touch "'"$temppath1"'"
-    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${relativePath1}"'" "'"$fullpath1"'"
+    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${uriPath1}"'" "'"$fullpath1"'"
     sleep 1
     rm -rf "'"$temppath1"'"
     '
@@ -352,7 +352,7 @@ ssh "$hostname" '
 ssh "$hostname" '
     mkdir -p "'"$dirpath1"'"
     touch "'"$temppath1"'"
-    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${relativePath2}"'" "'"$fullpath1"'";
+    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath1"'";
     sleep .5
     mkdir -p "'"$dirpath2"'";
     touch "'"$temppath2"'";
@@ -366,7 +366,7 @@ EOL
 ssh "$hostname" '
     mkdir -p "'"$dirpath1"'"
     touch "'"$temppath1"'"
-    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${relativePath2}"'" "'"$fullpath1"'";
+    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath1"'";
     sleep .5
     mkdir -p "'"$dirpath2"'";
     touch "'"$temppath2"'";
@@ -419,7 +419,7 @@ ssh "$hostname" '
 ssh "$hostname" '
     mkdir -p "'"$dirpath1"'"
     touch "'"$temppath1"'"
-    rsync -T /tmp -s -avr '"${myname}:${mydirectory}${relativePath2}"' '"$fullpath1"';
+    rsync -T /tmp -s -avr '"${myname}:${mydirectory}${uriPath2}"' '"$fullpath1"';
     sleep 1
     mkdir -p "'"$dirpath2"'";
     touch "'"$temppath2"'";
@@ -433,7 +433,7 @@ EOL
 ssh "$hostname" '
     mkdir -p "'"$dirpath1"'"
     touch "'"$temppath1"'"
-    rsync -T /tmp -s -avr '"${myname}:${mydirectory}${relativePath2}"' '"$fullpath1"';
+    rsync -T /tmp -s -avr '"${myname}:${mydirectory}${uriPath2}"' '"$fullpath1"';
     sleep 1
     mkdir -p "'"$dirpath2"'";
     touch "'"$temppath2"'";
@@ -587,10 +587,10 @@ do
     fi
 
     ABSPATH="${DIR}/${FILE}"
-    RELPATH=$(echo "$ABSPATH" | sed "s|${mydirectory}||")
+    URIPATH=$(echo "$ABSPATH" | sed "s|${mydirectory}||")
     skip=
     for i in "${exclude[@]}"; do
-        if [[ "$RELPATH" =~ $i ]];then
+        if [[ "$URIPATH" =~ $i ]];then
             skip=1
         fi
     done
@@ -607,5 +607,5 @@ do
     [ -d "$ABSPATH" ] && echo -n 'isdir' >> "$queue_file"
     [ ! -d "$ABSPATH" ] && echo -n 'isnotdir' >> "$queue_file"
     echo -n ") " >> "$queue_file"
-    echo "$RELPATH" >> "$queue_file"
+    echo "$URIPATH" >> "$queue_file"
 done
