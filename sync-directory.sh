@@ -131,6 +131,39 @@ if [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
     bin=$(cygpath -w "$bin")
 fi
 
+# Kill existing before.
+getPid() {
+    if [[ $(uname) == "Linux" ]];then
+        pid=$(ps aux | grep "$2" | grep -v grep | awk '{print $2}')
+        echo $pid
+    elif [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
+        local pid command ifs
+        ifs=$IFS
+        ps -s | grep "$1" | awk '{print $1}' | while IFS= read -r pid; do\
+            command=$(cat /proc/${pid}/cmdline | tr '\0' ' ')
+            command=$(echo "$command" | sed 's/\ $//')
+            IFS=$ifs
+            if [[ "$command" == "$2" ]];then
+                echo $pid
+                break
+            fi
+        done
+        IFS=$ifs
+    fi
+}
+
+command="${bin} -q -e modify ${object_watched_2}"
+pid=$(getPid inotifywait "$command")
+[ -n "$pid" ] && {
+    echo "$pid" | xargs kill
+}
+format='<<%e>><<%w>><<%f>><<%T>>'
+command="${bin} -q -e modify,create,delete,move -m -r --format ${format} ${object_watched}"
+pid=$(getPid inotifywait "$command")
+[ -n "$pid" ] && {
+    echo "$pid" | xargs kill
+}
+
 touch "$queue_file"
 touch "$line_file"
 touch "$log_file"
@@ -560,38 +593,6 @@ done
 EOF
 # End Bash Script.
 # ------------------------------------------------------------------------------
-
-# Kill existing before.
-getPid() {
-    if [[ $(uname) == "Linux" ]];then
-        pid=$(ps aux | grep "$2" | grep -v grep | awk '{print $2}')
-        echo $pid
-    elif [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
-        local pid command ifs
-        ifs=$IFS
-        ps -s | grep "$1" | awk '{print $1}' | while IFS= read -r pid; do\
-            command=$(cat /proc/${pid}/cmdline | tr '\0' ' ')
-            command=$(echo "$command" | sed 's/\ $//')
-            IFS=$ifs
-            if [[ "$command" == "$2" ]];then
-                echo $pid
-                break
-            fi
-        done
-        IFS=$ifs
-    fi
-}
-format='<<%e>><<%w>><<%f>><<%T>>'
-command="${bin} -q -e modify,create,delete,move -m -r --format \"${format}\" ${object_watched}"
-pid=$(getPid inotifywait "$command")
-[ -n "$pid" ] && {
-    echo "$pid" | xargs kill
-}
-command="${bin} -q -e modify ${object_watched_2}"
-pid=$(getPid inotifywait "$command")
-[ -n "$pid" ] && {
-    echo "$pid" | xargs kill
-}
 
 "$queue_watcher" "$cluster_name" "$myname" "$nodes_ini_file" &
 
