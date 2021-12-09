@@ -580,6 +580,7 @@ do
     [ -n "$ISCYGWIN" ] && DIR=$(cygpath "$DIR")
     FILE=$(sed -E 's|<<(.*)>><<(.*)>><<(.*)>><<(.*)>>|\3|' <<< "$LINE")
     TIME=$(sed -E 's|<<(.*)>><<(.*)>><<(.*)>><<(.*)>>|\4|' <<< "$LINE")
+    [ -n "$ISCYGWIN" ] && LINE="<<${EVENT}>><<${DIR}>><<${FILE}>><<${TIME}>>"
     # echo "[debug] EVENT: ${EVENT}" >> "$log_file"
     # echo "[debug] DIR: ${DIR}" >> "$log_file"
     # echo "[debug] FILE: ${FILE}" >> "$log_file"
