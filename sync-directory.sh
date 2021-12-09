@@ -289,6 +289,7 @@ doIt() {
     uriPath1="$2"
     uriPath2="$3"
     while IFS= read -r hostname; do
+        rsynctempdir="${DIRECTORIES[$hostname]}/.tmp.sync-directory"
         fullpath1="${DIRECTORIES[$hostname]}${uriPath1}"
         dirpath1=$(dirname "$fullpath1")
         basename1=$(basename "$fullpath1")
@@ -313,19 +314,23 @@ doIt() {
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
     mkdir -p "'"$dirpath1"'"
+    mkdir -p "'"$rsynctempdir"'"
     touch "'"$temppath1"'"
-    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${uriPath1}"'" "'"$fullpath1"'"
+    rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath1}"'" "'"$fullpath1"'"
     sleep 1
     rm -rf "'"$temppath1"'"
+    rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
     '
 EOL
                 screen -d -m \
 ssh "$hostname" '
     mkdir -p "'"$dirpath1"'"
+    mkdir -p "'"$rsynctempdir"'"
     touch "'"$temppath1"'"
-    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${uriPath1}"'" "'"$fullpath1"'"
+    rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath1}"'" "'"$fullpath1"'"
     sleep 1
     rm -rf "'"$temppath1"'"
+    rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
     '
                 ;;
             ssh_rm) #2
@@ -351,8 +356,9 @@ ssh "$hostname" '
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
     mkdir -p "'"$dirpath1"'"
+    mkdir -p "'"$rsynctempdir"'"
     touch "'"$temppath1"'"
-    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath1"'";
+    rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath1"'";
     sleep .5
     mkdir -p "'"$dirpath2"'";
     touch "'"$temppath2"'";
@@ -360,13 +366,15 @@ ssh "$hostname" '
     sleep 1
     rm -rf "'"$temppath1"'"
     rm -rf "'"$temppath2"'";
+    rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
     '
 EOL
                 screen -d -m \
 ssh "$hostname" '
     mkdir -p "'"$dirpath1"'"
+    mkdir -p "'"$rsynctempdir"'"
     touch "'"$temppath1"'"
-    rsync -T /tmp -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath1"'";
+    rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath1"'";
     sleep .5
     mkdir -p "'"$dirpath2"'";
     touch "'"$temppath2"'";
@@ -374,6 +382,7 @@ ssh "$hostname" '
     sleep 1
     rm -rf "'"$temppath1"'"
     rm -rf "'"$temppath2"'";
+    rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
     '
                 ;;
             ssh_rename_dir) #4
@@ -418,8 +427,9 @@ ssh "$hostname" '
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
     mkdir -p "'"$dirpath1"'"
+    mkdir -p "'"$rsynctempdir"'"
     touch "'"$temppath1"'"
-    rsync -T /tmp -s -avr '"${myname}:${mydirectory}${uriPath2}"' '"$fullpath1"';
+    rsync -T "'"$rsynctempdir"'" -s -avr '"${myname}:${mydirectory}${uriPath2}"' '"$fullpath1"';
     sleep 1
     mkdir -p "'"$dirpath2"'";
     touch "'"$temppath2"'";
@@ -427,13 +437,15 @@ ssh "$hostname" '
     sleep 1
     rm -rf "'"$temppath1"'"
     rm -rf "'"$temppath2"'";
+    rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
     '
 EOL
                 screen -d -m \
 ssh "$hostname" '
     mkdir -p "'"$dirpath1"'"
+    mkdir -p "'"$rsynctempdir"'"
     touch "'"$temppath1"'"
-    rsync -T /tmp -s -avr '"${myname}:${mydirectory}${uriPath2}"' '"$fullpath1"';
+    rsync -T "'"$rsynctempdir"'" -s -avr '"${myname}:${mydirectory}${uriPath2}"' '"$fullpath1"';
     sleep 1
     mkdir -p "'"$dirpath2"'";
     touch "'"$temppath2"'";
@@ -441,6 +453,7 @@ ssh "$hostname" '
     sleep 1
     rm -rf "'"$temppath1"'"
     rm -rf "'"$temppath2"'";
+    rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
     '
                 ;;
             ssh_mv_dir) #7
@@ -570,11 +583,12 @@ do
     # echo "[debug] EVENT: ${EVENT}" >> "$log_file"
     # echo "[debug] DIR: ${DIR}" >> "$log_file"
     # echo "[debug] FILE: ${FILE}" >> "$log_file"
-    if [[ "$FILE" =~ ^\..*\.ignore-this$ ]];then
+    if [[ "$FILE" =~ ^\..*\.ignore-this$ || "$FILE" == '.tmp.sync-directory' || "$DIR" =~ \.tmp\.sync-directory$ ]];then
         # echo "  [debug] Something happend with file temporary." >> "$log_file"
         # echo "  [debug] Process Stop." >> "$log_file"
         continue
     fi
+
     TEMPPATH="${DIR}/.${FILE}.ignore-this"
     # echo "[debug] TEMPPATH: ${TEMPPATH}" >> "$log_file"
     if [[ -f "${TEMPPATH}" ]];then
