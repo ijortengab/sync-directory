@@ -52,9 +52,8 @@ set -- "${_new_arguments[@]}"
 unset _new_arguments
 
 # Verification.
-[ -n "$cluster_name" ] || { echo "Variable cluster_name can't empty.">&2; exit 1; }
-[ -n "$myname" ] || { echo "Variable myname can't empty.">&2; exit 1; }
-[ -f "$nodes_ini_file" ] || { echo "File '${nodes_ini_file}' not found.">&2; exit 1; }
+[ -n "$myname" ] || { echo "Argument --myname (-n) required.">&2; exit 1; }
+[ -n "$nodes_ini_file" ] || { echo "Argument --nodes-ini-file (-i) required.">&2; exit 1; }
 
 # Populate variables
 list_all=$(grep -o -P "^\[\K([^\[\]]+)" "$nodes_ini_file")
@@ -81,6 +80,38 @@ done <<< "$list_all"
 
 # Populate variable $mydirectory.
 mydirectory="${DIRECTORIES[$myname]}"
+
+case "$1" in
+    test)
+        while IFS= read -r hostname; do
+            echo '- Test connect to host '"$hostname"'.'
+            echo -n '  '; ssh "$hostname" 'echo -e "\e[32mSuccess\e[0m"'
+            if [[ $? == 0 ]];then
+                echo '  Test connect back from host '"$hostname"' to '"$myname"
+                echo -n '  '; ssh "$hostname" 'ssh "'"$myname"'" echo -e "\\\e[32mSuccess\\\e[0m"'
+                if [[ $? == 0 ]];then
+                    file=$(mktemp)
+                    content=$RANDOM
+                    echo $content > $file
+                    echo '  Test host '"$hostname"' pull a file from '"$myname"
+                    echo -n '  '; ssh "$hostname" '
+                        temp=$(mktemp)
+                        rsync -avr "'"$myname"'":"'"$file"'" "'"$file"'" &> $temp
+                        [[ "'"$content"'" == $(<"'"$file"'") ]] && echo -e "\e[32mSuccess\e[0m" || cat $temp
+                        rm "'"$file"'" $temp
+                        '
+                fi
+            fi
+        done <<< "$list_other"
+        exit 0
+        ;;
+    watch)
+        [ -n "$cluster_name" ] || { echo "Argument --cluster-name (-c) required.">&2; exit 1; }
+    ;;
+    *)
+        echo Command unknown. Command available: test, watch.
+        exit 1
+esac
 
 # Populate variable $object_watched, $format, and $bin.
 object_watched="$mydirectory"
