@@ -20,8 +20,8 @@ while [[ $# -gt 0 ]]; do
         --exclude|-e) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then exclude+=("$2"); shift; fi; shift ;;
         --myname=*|-n=*) myname="${1#*=}"; shift ;;
         --myname|-n) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then myname="$2"; shift; fi; shift ;;
-        --nodes-ini-file=*|-i=*) nodes_ini_file="${1#*=}"; shift ;;
-        --nodes-ini-file|-i) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then nodes_ini_file="$2"; shift; fi; shift ;;
+        --cluster-file=*|-f=*) cluster_file="${1#*=}"; shift ;;
+        --cluster-file|-f) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then cluster_file="$2"; shift; fi; shift ;;
         *) _new_arguments+=("$1"); shift ;;
     esac
 done
@@ -33,12 +33,12 @@ _new_arguments=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -[^-]*) OPTIND=1
-            while getopts ":c:e:n:i:" opt; do
+            while getopts ":c:e:n:f:" opt; do
                 case $opt in
                     c) cluster_name="$OPTARG" ;;
                     e) exclude+=("$OPTARG") ;;
                     n) myname="$OPTARG" ;;
-                    i) nodes_ini_file="$OPTARG" ;;
+                    f) cluster_file="$OPTARG" ;;
                 esac
             done
             shift "$((OPTIND-1))"
@@ -52,11 +52,12 @@ set -- "${_new_arguments[@]}"
 unset _new_arguments
 
 # Verification.
+[ -n "$cluster_name" ] || { echo "Argument --cluster-name (-c) required.">&2; exit 1; }
+[ -n "$cluster_file" ] || { echo "Argument --cluster-file (-f) required.">&2; exit 1; }
 [ -n "$myname" ] || { echo "Argument --myname (-n) required.">&2; exit 1; }
-[ -n "$nodes_ini_file" ] || { echo "Argument --nodes-ini-file (-i) required.">&2; exit 1; }
 
 # Populate variables
-list_all=$(grep -o -P "^\[\K([^\[\]]+)" "$nodes_ini_file")
+list_all=$(grep -o -P "^\[\K([^\[\]]+)" "$cluster_file")
 list_other=
 
 # Verification of myname and populate variable $list_other.
@@ -64,7 +65,7 @@ found=
 while IFS= read -r line; do
     [[ "$line" == "$myname" ]] && found=1 || list_other+="$line"$'\n'
 done <<< "$list_all"
-[ -n "$found" ] || { echo "My hostname '$myname' not found in '$nodes_ini_file'.">&2; exit 1; }
+[ -n "$found" ] || { echo "My hostname '$myname' not found in '$cluster_file'.">&2; exit 1; }
 [ -n "$list_other" ] && list_other=${list_other%$'\n'} # trim trailing \n
 
 # @todo, pull node terupdate.
@@ -73,13 +74,72 @@ done <<< "$list_all"
 declare -A DIRECTORIES
 found=
 while IFS= read -r hostname; do
-    _directory=$(sed -n '/^[ \t]*\['"$hostname"'\]/,/\[/s/^[ \t]*directory[ \t]*=[ \t]*//p' "$nodes_ini_file")
+    _directory=$(sed -n '/^[ \t]*\['"$hostname"'\]/,/\[/s/^[ \t]*directory[ \t]*=[ \t]*//p' "$cluster_file")
     [ -n "$_directory" ] && DIRECTORIES+=( ["$hostname"]="${_directory%/}" ) || found="$hostname"
 done <<< "$list_all"
-[ -n "$found" ] && { echo "Directory of '$found' not found in '$nodes_ini_file'.">&2; exit 1; }
+[ -n "$found" ] && { echo "Directory of '$found' not found in '$cluster_file'.">&2; exit 1; }
+
+ISCYGWIN=
+if [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
+    ISCYGWIN=1
+fi
 
 # Populate variable $mydirectory.
 mydirectory="${DIRECTORIES[$myname]}"
+instance_dir="/dev/shm/${cluster_name}"
+queue_file="${instance_dir}/_queue.txt"
+object_watched_2="$queue_file"
+[ -n "$ISCYGWIN" ] && object_watched_2=$(cygpath -w "$queue_file")
+line_file="${instance_dir}/_line.txt"
+log_file="${instance_dir}/_log.txt"
+queue_watcher="${instance_dir}/_queue_watcher.sh"
+
+# Kill existing before.
+getPid() {
+    if [[ $(uname) == "Linux" ]];then
+        pid=$(ps aux | grep "$2" | grep -v grep | awk '{print $2}')
+        echo $pid
+    elif [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
+        local pid command ifs
+        ifs=$IFS
+        ps -s | grep "$1" | awk '{print $1}' | while IFS= read -r pid; do\
+            command=$(cat /proc/${pid}/cmdline | tr '\0' ' ')
+            command=$(echo "$command" | sed 's/\ $//')
+            IFS=$ifs
+            if [[ "$command" == "$2" ]];then
+                echo $pid
+            fi
+        done
+        IFS=$ifs
+    fi
+}
+
+# Populate variable $object_watched, $format, and $bin.
+object_watched="$mydirectory"
+[ -n "$ISCYGWIN" ] && object_watched=$(cygpath -w "$mydirectory")
+bin=$(command -v inotifywait)
+[ -n "$ISCYGWIN" ] && bin=$(cygpath -w "$bin")
+format='<<%e>><<%w>><<%f>><<%T>>'
+
+doStop() {
+    PIDS=()
+    command="${bin} -q -e modify ${object_watched_2}"
+    while read -r _pid; do
+        [ -n "$_pid" ] && PIDS+=("$_pid")
+    done <<< $(getPid inotifywait "$command")
+    command="${bin} -q -e modify,create,delete,move -m -r --format ${format} ${object_watched}"
+    while read -r _pid; do
+        [ -n "$_pid" ] && PIDS+=("$_pid")
+    done <<< $(getPid inotifywait "$command")
+    [[ "${#PIDS[@]}" -gt 0 ]] && {
+        echo -n "Stopping..."; sleep .5
+        for _pid in "${PIDS[@]}"; do
+          kill $_pid
+        done
+        printf "\r\033[K"
+        echo "Stopped."
+    }
+}
 
 case "$1" in
     test)
@@ -105,65 +165,35 @@ case "$1" in
         done <<< "$list_other"
         exit 0
         ;;
-    watch)
-        [ -n "$cluster_name" ] || { echo "Argument --cluster-name (-c) required.">&2; exit 1; }
-    ;;
+    status)
+        command="${bin} -q -e modify,create,delete,move -m -r --format ${format} ${object_watched}"
+        PIDS=()
+        while read -r _pid; do
+            [ -n "$_pid" ] && PIDS+=("$_pid")
+        done <<< $(getPid inotifywait "$command")
+        [[ "${#PIDS[@]}" -gt 0 ]] && {
+            [[ "${#PIDS[@]}" -gt 1 ]] && _label='PIDS' || _label='PID'
+            echo 'Watching directory: '"$mydirectory"'.'
+            echo "${_label}: ${PIDS[@]}"
+        }
+        exit
+        ;;
+    stop)
+        doStop;
+        exit
+        ;;
+    start)
+        doStop;
+        ;;
+    restart)
+        doStop;
+        ;;
     *)
-        echo Command unknown. Command available: test, watch.
+        echo Command available: test, start, status, stop, restart. >&2
         exit 1
 esac
 
-# Populate variable $object_watched, $format, and $bin.
-object_watched="$mydirectory"
-object_watched_2="$queue_file"
-bin=$(command -v inotifywait)
-
-instance_dir="/dev/shm/${cluster_name}"
 mkdir -p "$instance_dir"
-queue_file="${instance_dir}/_queue.txt"
-line_file="${instance_dir}/_line.txt"
-log_file="${instance_dir}/_log.txt"
-queue_watcher="${instance_dir}/_queue_watcher.sh"
-
-if [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
-    object_watched=$(cygpath -w "$mydirectory")
-    object_watched_2=$(cygpath -w "$queue_file")
-    bin=$(cygpath -w "$bin")
-fi
-
-# Kill existing before.
-getPid() {
-    if [[ $(uname) == "Linux" ]];then
-        pid=$(ps aux | grep "$2" | grep -v grep | awk '{print $2}')
-        echo $pid
-    elif [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
-        local pid command ifs
-        ifs=$IFS
-        ps -s | grep "$1" | awk '{print $1}' | while IFS= read -r pid; do\
-            command=$(cat /proc/${pid}/cmdline | tr '\0' ' ')
-            command=$(echo "$command" | sed 's/\ $//')
-            IFS=$ifs
-            if [[ "$command" == "$2" ]];then
-                echo $pid
-                break
-            fi
-        done
-        IFS=$ifs
-    fi
-}
-
-command="${bin} -q -e modify ${object_watched_2}"
-pid=$(getPid inotifywait "$command")
-[ -n "$pid" ] && {
-    echo "$pid" | xargs kill
-}
-format='<<%e>><<%w>><<%f>><<%T>>'
-command="${bin} -q -e modify,create,delete,move -m -r --format ${format} ${object_watched}"
-pid=$(getPid inotifywait "$command")
-[ -n "$pid" ] && {
-    echo "$pid" | xargs kill
-}
-
 touch "$queue_file"
 touch "$line_file"
 touch "$log_file"
@@ -174,7 +204,7 @@ chmod a+x "$queue_watcher"
 # Begin Bash Script.
 cat <<'EOF' > "$queue_watcher"
 #!/bin/bash
-cluster_name="$1"; myname="$2"; nodes_ini_file="$3"
+cluster_name="$1"; myname="$2"; cluster_file="$3"
 instance_dir="/dev/shm/${cluster_name}"; queue_file="${instance_dir}/_queue.txt"
 line_file="${instance_dir}/_line.txt"; log_file="${instance_dir}/_log.txt"
 command_file="${instance_dir}/_command.txt"
@@ -553,13 +583,13 @@ ssh "$hostname" '
         esac
     done <<< "$list_other"
 }
-declare -A DIRECTORIES; list_all=$(grep -o -P "^\[\K([^\[\]]+)" "$nodes_ini_file"); list_other=
+declare -A DIRECTORIES; list_all=$(grep -o -P "^\[\K([^\[\]]+)" "$cluster_file"); list_other=
 while IFS= read -r line; do
     [[ ! "$line" == "$myname" ]] && list_other+="$line"$'\n'
 done <<< "$list_all"
 [ -n "$list_other" ] && list_other=${list_other%$'\n'} # trim trailing \n
 while IFS= read -r h; do
-    _d=$(sed -n '/^[ \t]*\['"$h"'\]/,/\[/s/^[ \t]*directory[ \t]*=[ \t]*//p' "$nodes_ini_file")
+    _d=$(sed -n '/^[ \t]*\['"$h"'\]/,/\[/s/^[ \t]*directory[ \t]*=[ \t]*//p' "$cluster_file")
     DIRECTORIES+=( ["$h"]="${_d%/}" )
 done <<< "$list_all"
 mydirectory="${DIRECTORIES[$myname]}"; object_watched_2="$queue_file";
@@ -594,12 +624,7 @@ EOF
 # End Bash Script.
 # ------------------------------------------------------------------------------
 
-"$queue_watcher" "$cluster_name" "$myname" "$nodes_ini_file" &
-
-ISCYGWIN=
-if [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
-    ISCYGWIN=1
-fi
+"$queue_watcher" "$cluster_name" "$myname" "$cluster_file" &
 
 IFS=''
 inotifywait -q -e modify,create,delete,move -m -r --format "$format" "$object_watched" | while read -r LINE
