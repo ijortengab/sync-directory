@@ -355,6 +355,33 @@ parseLineContents() {
             ARGUMENT1="$_path"
             sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
             break
+        elif [[ "$_event" == "MODIFY,ISDIR" && "$_state" == "(isnotfileisdir)" &&  "$_eventbelow" == "MODIFY,ISDIR" && "$_statebelow" == "(isnotfileisdir)" && "$_path" == "$_pathbelow" ]];then
+            # Coret satu dulu.
+            sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
+            let LINE++;
+            stop=
+            until [[ -n "$stop" ]]; do
+                # Restart:
+                _linecontent="$_linecontentbelow"
+                _event="$_eventbelow"
+                _state="$_statebelow"
+                _path=$"$_pathbelow"
+                let "LINEBELOW = $LINE + 1"
+                _linecontentbelow=$(sed "$LINEBELOW"'q;d' "$queue_file")
+                _eventbelow=$(echo "$_linecontentbelow" | cut -d' ' -f1)
+                _statebelow=$(echo "$_linecontentbelow" | cut -d' ' -f2)
+                _pathbelow=$(echo "$_linecontentbelow" | sed 's|'"${_eventbelow} ${_statebelow} "'||')
+                if [[ "$_event" == "MODIFY,ISDIR" && "$_state" == "(isnotfileisdir)" &&  "$_eventbelow" == "MODIFY,ISDIR" && "$_statebelow" == "(isnotfileisdir)" && "$_path" == "$_pathbelow" ]];then
+                    # Coret satu dulu.
+                    sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
+                    let LINE++;
+                else
+                    sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
+                    stop=1
+                fi
+            done
+            break
+
         elif [[ "$_event" == "CREATE,ISDIR" && "$_state" == "(isnotfileisdir)" &&  "$_eventbelow" == "CREATE,ISDIR" && "$_statebelow" == "(isnotfileisdir)" && "$_pathbelow" =~ ^"$_path" ]];then
             # Contoh kasus:
             # mkdir -p aa/bb (directory belum ada sebelumnya)
@@ -667,8 +694,8 @@ while inotifywait -q -e modify "$object_watched_2"; do
         sleep 1
         ACTION=; ARGUMENT1=; ARGUMENT2=
         parseLineContents
-        echo "[queue] ${ACTION} ${ARGUMENT1} ${ARGUMENT2}" >> "$log_file"
-        [[ "$ACTION" == ignore ]] || {
+        [ -n "$ACTION" ] && echo "[queue] ${ACTION} ${ARGUMENT1} ${ARGUMENT2}" >> "$log_file"
+        [[ -n "$ACTION" && ! "$ACTION" == ignore ]] && {
             doIt "${ACTION}" "${ARGUMENT1}" "${ARGUMENT2}"
             date +%s%n%Y%m%d-%H%M%S > "$updated_file"
         }
