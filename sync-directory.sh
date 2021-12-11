@@ -92,9 +92,10 @@ object_watched_2="$queue_file"
 [ -n "$ISCYGWIN" ] && object_watched_2=$(cygpath -w "$queue_file")
 line_file="${instance_dir}/_line.txt"
 log_file="${instance_dir}/_log.txt"
+updated_file="${instance_dir}/_updated.txt"
 queue_watcher="${instance_dir}/_queue_watcher.sh"
 
-# Kill existing before.
+# Get pid, return multi line.
 getPid() {
     if [[ $(uname) == "Linux" ]];then
         pid=$(ps aux | grep "$2" | grep -v grep | awk '{print $2}')
@@ -121,6 +122,7 @@ bin=$(command -v inotifywait)
 [ -n "$ISCYGWIN" ] && bin=$(cygpath -w "$bin")
 format='<<%e>><<%w>><<%f>><<%T>>'
 
+# Kill existing before.
 doStop() {
     PIDS=()
     command="${bin} -q -e modify ${object_watched_2}"
@@ -141,55 +143,108 @@ doStop() {
     }
 }
 
-case "$1" in
-    test)
-        while IFS= read -r hostname; do
-            echo '- Test connect to host '"$hostname"'.'
-            echo -n '  '; ssh "$hostname" 'echo -e "\e[32mSuccess\e[0m"'
-            if [[ $? == 0 ]];then
-                echo '  Test connect back from host '"$hostname"' to '"$myname"
-                echo -n '  '; ssh "$hostname" 'ssh "'"$myname"'" echo -e "\\\e[32mSuccess\\\e[0m"'
-                if [[ $? == 0 ]];then
-                    file=$(mktemp)
-                    content=$RANDOM
-                    echo $content > $file
-                    echo '  Test host '"$hostname"' pull a file from '"$myname"
-                    echo -n '  '; ssh "$hostname" '
-                        temp=$(mktemp)
-                        rsync -avr "'"$myname"'":"'"$file"'" "'"$file"'" &> $temp
-                        [[ "'"$content"'" == $(<"'"$file"'") ]] && echo -e "\e[32mSuccess\e[0m" || cat $temp
-                        rm "'"$file"'" $temp
-                        '
-                fi
-            fi
-        done <<< "$list_other"
-        exit 0
-        ;;
-    status)
-        command="${bin} -q -e modify,create,delete,move -m -r --format ${format} ${object_watched}"
-        PIDS=()
-        while read -r _pid; do
-            [ -n "$_pid" ] && PIDS+=("$_pid")
-        done <<< $(getPid inotifywait "$command")
-        [[ "${#PIDS[@]}" -gt 0 ]] && {
-            [[ "${#PIDS[@]}" -gt 1 ]] && _label='PIDS' || _label='PID'
-            echo 'Watching directory: '"$mydirectory"'.'
-            echo "${_label}: ${PIDS[@]}"
+doUpdate() {
+    local updated updated_host hostname _updated updated_host_file rsynctempdir
+    while IFS= read -r hostname; do
+        updated_host_file="${instance_dir}/_updated_${hostname}.txt"
+        rm -rf "$updated_host_file"
+        screen -d -m ssh "$hostname" '
+            head -n1 "'"$updated_file"'" | ssh "'"$myname"'" "cat > "'"$updated_host_file"'""
+            '
+    done <<< "$list_other"
+    local n=5
+    until [[ $n == 0 ]]; do
+        printf "\r\033[K"
+        echo -n Waiting $n...
+        let n--
+        sleep 1
+    done
+    printf "\r\033[K"
+    updated=
+    [[ -f "$updated_file" && -s "$updated_file" ]] && {
+        updated=$(head -n 1 "$updated_file")
+    }
+    [[ ! "$updated" =~ ^[0-9]+$ ]] && {
+        updated=
+    }
+    updated_host=
+    while IFS= read -r hostname; do
+        updated_host_file="${instance_dir}/_updated_${hostname}.txt"
+        _updated=
+        [[ -f "$updated_host_file" && -s "$updated_host_file" ]] && {
+            _updated=$(<"$updated_host_file")
         }
-        exit
-        ;;
-    stop)
-        doStop;
+        [[ $_updated =~ ^[0-9]+$ && $_updated -gt $updated ]] && {
+            updated="$_updated"
+            updated_host="$hostname"
+        }
+        rm -rf "$updated_host_file"
+    done <<< "$list_other"
+    [ -n "$updated_host" ] && {
+        echo "Pull update from host: ${updated_host}"
+        echo "[directory] Pull update from host: ${updated_host}" >> "$log_file"
+        rsynctempdir="${mydirectory}/.tmp.sync-directory"
+        mkdir -p "$rsynctempdir"
+        rsync -T "$rsynctempdir" -avr -u "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/"
+        rmdir --ignore-fail-on-non-empty "$rsynctempdir"
+        date +%s%n%Y%m%d-%H%M%S > "$updated_file"
+    }
+}
+
+doTest() {
+    while IFS= read -r hostname; do
+        echo '- Test connect to host '"$hostname"'.'
+        echo -n '  '; ssh "$hostname" 'echo -e "\e[32mSuccess\e[0m"'
+        if [[ $? == 0 ]];then
+            echo '  Test connect back from host '"$hostname"' to '"$myname"
+            echo -n '  '; ssh "$hostname" 'ssh "'"$myname"'" echo -e "\\\e[32mSuccess\\\e[0m"'
+            if [[ $? == 0 ]];then
+                file=$(mktemp)
+                content=$RANDOM
+                echo $content > $file
+                echo '  Test host '"$hostname"' pull a file from '"$myname"
+                echo -n '  '; ssh "$hostname" '
+                    temp=$(mktemp)
+                    rsync -avr "'"$myname"'":"'"$file"'" "'"$file"'" &> $temp
+                    [[ "'"$content"'" == $(<"'"$file"'") ]] && echo -e "\e[32mSuccess\e[0m" || cat $temp
+                    rm "'"$file"'" $temp
+                    '
+                rm "$file"
+            fi
+        fi
+    done <<< "$list_other"
+}
+
+doStatus() {
+    command="${bin} -q -e modify,create,delete,move -m -r --format ${format} ${object_watched}"
+    PIDS=()
+    while read -r _pid; do
+        [ -n "$_pid" ] && PIDS+=("$_pid")
+    done <<< $(getPid inotifywait "$command")
+    [[ "${#PIDS[@]}" -gt 0 ]] && {
+        [[ "${#PIDS[@]}" -gt 1 ]] && _label='PIDS' || _label='PID'
+        echo 'Watching directory: '"$mydirectory"'.'
+        echo "${_label}: ${PIDS[@]}"
+    }
+}
+
+case "$1" in
+    stop) doStop; exit;;
+    status) doStatus; exit;;
+    test) doTest; exit;;
+    update)
+        doUpdate &
         exit
         ;;
     start)
-        doStop;
+        doStop
+        doUpdate
         ;;
     restart)
-        doStop;
+        doStop
         ;;
     *)
-        echo Command available: test, start, status, stop, restart. >&2
+        echo Command available: test, start, status, stop, update, restart. >&2
         exit 1
 esac
 
@@ -207,7 +262,7 @@ cat <<'EOF' > "$queue_watcher"
 cluster_name="$1"; myname="$2"; cluster_file="$3"
 instance_dir="/dev/shm/${cluster_name}"; queue_file="${instance_dir}/_queue.txt"
 line_file="${instance_dir}/_line.txt"; log_file="${instance_dir}/_log.txt"
-command_file="${instance_dir}/_command.txt"
+command_file="${instance_dir}/_command.txt"; updated_file="${instance_dir}/_updated.txt"
 # List action result:
 #1 ssh_rsync
 #2 ssh_rm
@@ -613,7 +668,10 @@ while inotifywait -q -e modify "$object_watched_2"; do
         ACTION=; ARGUMENT1=; ARGUMENT2=
         parseLineContents
         echo "[queue] ${ACTION} ${ARGUMENT1} ${ARGUMENT2}" >> "$log_file"
-        [[ "$ACTION" == ignore ]] || doIt "${ACTION}" "${ARGUMENT1}" "${ARGUMENT2}"
+        [[ "$ACTION" == ignore ]] || {
+            doIt "${ACTION}" "${ARGUMENT1}" "${ARGUMENT2}"
+            date +%s%n%Y%m%d-%H%M%S > "$updated_file"
+        }
         let LINE++;
         LINES=$(wc -l < "$queue_file")
     done
@@ -627,6 +685,7 @@ EOF
 "$queue_watcher" "$cluster_name" "$myname" "$cluster_file" &
 
 IFS=''
+echo "[directory] Start watching ("$(date +%Y%m%d-%H%M%S)")." >> "$log_file"
 inotifywait -q -e modify,create,delete,move -m -r --format "$format" "$object_watched" | while read -r LINE
 do
     # echo "[debug] LINE: ${LINE}" >> "$log_file"
