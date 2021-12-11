@@ -182,7 +182,7 @@ doUpdate() {
     done <<< "$list_other"
     [ -n "$updated_host" ] && {
         echo "Pull update from host: ${updated_host}"
-        echo "[directory] Pull update from host: ${updated_host}" >> "$log_file"
+        echo "[directory] ("$(date +%Y-%m-%d\ %H:%M:%S)") Pull update from host: ${updated_host}." >> "$log_file"
         rsynctempdir="${mydirectory}/.tmp.sync-directory"
         mkdir -p "$rsynctempdir"
         rsync -T "$rsynctempdir" -avr -u "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/"
@@ -254,6 +254,7 @@ touch "$line_file"
 touch "$log_file"
 touch "$queue_watcher"
 chmod a+x "$queue_watcher"
+ln -sf "$log_file" "/var/log/sync-directory-${cluster_name}.log"
 
 # ------------------------------------------------------------------------------
 # Begin Bash Script.
@@ -712,7 +713,7 @@ EOF
 "$queue_watcher" "$cluster_name" "$myname" "$cluster_file" &
 
 IFS=''
-echo "[directory] Start watching ("$(date +%Y%m%d-%H%M%S)")." >> "$log_file"
+echo "[directory] ("$(date +%Y-%m-%d\ %H:%M:%S)") Start watching." >> "$log_file"
 inotifywait -q -e modify,create,delete,move -m -r --format "$format" "$object_watched" | while read -r LINE
 do
     # echo "[debug] LINE: ${LINE}" >> "$log_file"
