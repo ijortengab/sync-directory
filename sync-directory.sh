@@ -147,6 +147,7 @@ doStop() {
 
 doUpdate() {
     local updated updated_host hostname _updated updated_host_file rsynctempdir
+    local _lines rsynctempdir
     while IFS= read -r hostname; do
         updated_host_file="${instance_dir}/_updated_${hostname}.txt"
         rm -rf "$updated_host_file"
@@ -269,7 +270,7 @@ case "$1" in
     status) doStatus; exit;;
     test) doTest; exit;;
     update)
-        doUpdate &
+        doUpdate
         exit
         ;;
     start)
@@ -794,13 +795,14 @@ do
     fi
 
     echo "[directory] ${LINE}" >> "$log_file"
-    echo -n "${EVENT} (" >> "$queue_file"
     # Terdapat bug/inkonsistensi. Sehingga perlu dibuat informasi
     # seperti 4 baris dibawah.
-    [ -f "$ABSPATH" ] && echo -n 'isfile' >> "$queue_file"
-    [ ! -f "$ABSPATH" ] && echo -n 'isnotfile' >> "$queue_file"
-    [ -d "$ABSPATH" ] && echo -n 'isdir' >> "$queue_file"
-    [ ! -d "$ABSPATH" ] && echo -n 'isnotdir' >> "$queue_file"
-    echo -n ") " >> "$queue_file"
-    echo "$URIPATH" >> "$queue_file"
+    LINE="${EVENT} ("
+    [ -f "$ABSPATH" ] && LINE+='isfile'
+    [ ! -f "$ABSPATH" ] && LINE+='isnotfile'
+    [ -d "$ABSPATH" ] && LINE+='isdir'
+    [ ! -d "$ABSPATH" ] && LINE+='isnotdir'
+    LINE+=") "
+    LINE+="$URIPATH"
+    echo "$LINE" >> "$queue_file"
 done
