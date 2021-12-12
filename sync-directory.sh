@@ -93,6 +93,8 @@ object_watched_2="$queue_file"
 line_file="${instance_dir}/_line.txt"
 log_file="${instance_dir}/_log.txt"
 updated_file="${instance_dir}/_updated.txt"
+rsync_output_file="${instance_dir}/_rsync_output.txt"
+rsync_list_file="${instance_dir}/_rsync_list.txt"
 queue_watcher="${instance_dir}/_queue_watcher.sh"
 
 # Get pid, return multi line.
@@ -183,11 +185,45 @@ doUpdate() {
     [ -n "$updated_host" ] && {
         echo "Pull update from host: ${updated_host}"
         echo "[directory] ("$(date +%Y-%m-%d\ %H:%M:%S)") Pull update from host: ${updated_host}." >> "$log_file"
-        rsynctempdir="${mydirectory}/.tmp.sync-directory"
-        mkdir -p "$rsynctempdir"
-        rsync -T "$rsynctempdir" -avr -u "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/"
-        rmdir --ignore-fail-on-non-empty "$rsynctempdir"
-        date +%s%n%Y%m%d-%H%M%S > "$updated_file"
+        if [[ "${#exclude[@]}" == 0 ]];then
+            rsynctempdir="${mydirectory}/.tmp.sync-directory"
+            mkdir -p "$rsynctempdir"
+            rsync -T "$rsynctempdir" -avr -u "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/" 2>&1 | tee -a "$rsync_output_file"
+            rmdir --ignore-fail-on-non-empty "$rsynctempdir"
+            date +%s%n%Y%m%d-%H%M%S > "$updated_file"
+        else
+            while true; do
+                rsync -n -avr -u "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/" 2>&1 | tee "$rsync_list_file"
+                _lines=$(wc -l < "$rsync_list_file")
+                if [[ $_lines -le 4 ]];then
+                    break
+                fi
+                let "_bottom = $_lines - 3"
+                sed -n -i '2,'"$_bottom"'p' "$rsync_list_file"
+                sed -i '/\/$/d' "$rsync_list_file"
+                _lines=$(wc -l < "$rsync_list_file")
+                if [[ $_lines -lt 1 ]];then
+                    break
+                fi
+                sed -i 's,^,/,g' "$rsync_list_file"
+                for i in "${exclude[@]}"; do
+                    # escape slash
+                    i=$(echo "$i" | sed 's,/,\\/,g')
+                    sed -i -E '/'"${i}"'/d' "$rsync_list_file"
+                done
+                sed -i 's,^/,,g' "$rsync_list_file"
+                _lines=$(wc -l < "$rsync_list_file")
+                if [[ $_lines -lt 1 ]];then
+                    break
+                fi
+                rsynctempdir="${mydirectory}/.tmp.sync-directory"
+                mkdir -p "$rsynctempdir"
+                rsync -T "$rsynctempdir" -avr -u --files-from="$rsync_list_file" "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/"  2>&1 | tee -a "$rsync_output_file"
+                rmdir --ignore-fail-on-non-empty "$rsynctempdir"
+                date +%s%n%Y%m%d-%H%M%S > "$updated_file"
+            done
+        fi
+
     }
 }
 
