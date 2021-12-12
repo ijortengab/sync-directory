@@ -222,6 +222,7 @@ doUpdate() {
                 rsync -T "$rsynctempdir" -avr -u --files-from="$rsync_list_file" "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/"  2>&1 | tee -a "$rsync_output_file"
                 rmdir --ignore-fail-on-non-empty "$rsynctempdir"
                 date +%s%n%Y%m%d-%H%M%S > "$updated_file"
+                break
             done
         fi
 
