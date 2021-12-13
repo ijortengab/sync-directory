@@ -424,7 +424,6 @@ parseLineContents() {
                 fi
             done
             break
-
         elif [[ "$_event" == "CREATE,ISDIR" && "$_state" == "(isnotfileisdir)" &&  "$_eventbelow" == "CREATE,ISDIR" && "$_statebelow" == "(isnotfileisdir)" && "$_pathbelow" =~ ^"$_path" ]];then
             # Contoh kasus:
             # mkdir -p aa/bb (directory belum ada sebelumnya)
@@ -532,24 +531,20 @@ doIt() {
             ssh_rsync) #1
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
-    mkdir -p "'"$dirpath1"'"
-    mkdir -p "'"$rsynctempdir"'"
-    touch "'"$temppath1"'"
-    rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath1}"'" "'"$fullpath1"'"
+    mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
+    mkdir -p "'"$rsynctempdir"'"; rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath1}"'" "'"$fullpath1"'"
     sleep 1
     rm -rf "'"$temppath1"'"
-    rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
+    [ -d "'"$rsynctempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
     '
 EOL
                 screen -d -m \
 ssh "$hostname" '
-    mkdir -p "'"$dirpath1"'"
-    mkdir -p "'"$rsynctempdir"'"
-    touch "'"$temppath1"'"
-    rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath1}"'" "'"$fullpath1"'"
+    mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
+    mkdir -p "'"$rsynctempdir"'"; rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath1}"'" "'"$fullpath1"'"
     sleep 1
     rm -rf "'"$temppath1"'"
-    rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
+    [ -d "'"$rsynctempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
     '
                 ;;
             ssh_rm) #2
@@ -557,7 +552,7 @@ ssh "$hostname" '
                 # Gunakan sleep untuk mengerem command remove file temp.
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
-    touch "'"$temppath1"'"
+    mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
     rm -rf "'"$fullpath1"'";
     sleep 1;
     rm -rf "'"$temppath1"'"
@@ -574,45 +569,48 @@ ssh "$hostname" '
             ssh_rename_file) #3
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
-    mkdir -p "'"$dirpath1"'"
-    mkdir -p "'"$rsynctempdir"'"
-    touch "'"$temppath1"'"
-    rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath1"'";
-    sleep .5
-    mkdir -p "'"$dirpath2"'";
-    touch "'"$temppath2"'";
-    mv "'"$fullpath1"'" "'"$fullpath2"'"
+    if [ -f "'"$fullpath1"'" ];then
+        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
+        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
+        mv "'"$fullpath1"'" "'"$fullpath2"'"
+    fi
+    if [ ! -f "'"$fullpath2"'" ];then
+        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
+        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
+        mkdir -p "'"$rsynctempdir"'"; rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath2"'"
+    fi
     sleep 1
     rm -rf "'"$temppath1"'"
-    rm -rf "'"$temppath2"'";
-    rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
+    rm -rf "'"$temppath2"'"
+    [ -d "'"$rsynctempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
     '
 EOL
                 screen -d -m \
 ssh "$hostname" '
-    mkdir -p "'"$dirpath1"'"
-    mkdir -p "'"$rsynctempdir"'"
-    touch "'"$temppath1"'"
-    rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath1"'";
-    sleep .5
-    mkdir -p "'"$dirpath2"'";
-    touch "'"$temppath2"'";
-    mv "'"$fullpath1"'" "'"$fullpath2"'"
+    if [ -f "'"$fullpath1"'" ];then
+        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
+        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
+        mv "'"$fullpath1"'" "'"$fullpath2"'"
+    fi
+    if [ ! -f "'"$fullpath2"'" ];then
+        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
+        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
+        mkdir -p "'"$rsynctempdir"'"; rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath2"'"
+    fi
     sleep 1
     rm -rf "'"$temppath1"'"
-    rm -rf "'"$temppath2"'";
-    rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
+    rm -rf "'"$temppath2"'"
+    [ -d "'"$rsynctempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
     '
                 ;;
             ssh_rename_dir) #4
-                # fullpath1 dipastikan ada dulu.
-                # fullpath2 dipastikan tidak ada dulu.
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
-    mkdir -p "'"$fullpath1"'";
-    touch "'"$temppath1"'"
-    touch "'"$temppath2"'";
-    mv "'"$fullpath1"'" "'"$fullpath2"'"
+    if [ -d "'"$fullpath1"'" ];then
+        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
+        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
+        mv "'"$fullpath1"'" "'"$fullpath2"'"
+    fi
     sleep 1
     rm -rf "'"$temppath1"'"
     rm -rf "'"$temppath2"'";
@@ -620,10 +618,11 @@ ssh "$hostname" '
 EOL
                 screen -d -m \
 ssh "$hostname" '
-    mkdir -p "'"$fullpath1"'";
-    touch "'"$temppath1"'"
-    touch "'"$temppath2"'";
-    mv "'"$fullpath1"'" "'"$fullpath2"'"
+    if [ -d "'"$fullpath1"'" ];then
+        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
+        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
+        mv "'"$fullpath1"'" "'"$fullpath2"'"
+    fi
     sleep 1
     rm -rf "'"$temppath1"'"
     rm -rf "'"$temppath2"'";
@@ -645,64 +644,63 @@ ssh "$hostname" '
             ssh_mv_file) #6
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
-    mkdir -p "'"$dirpath1"'"
-    mkdir -p "'"$rsynctempdir"'"
-    touch "'"$temppath1"'"
-    rsync -T "'"$rsynctempdir"'" -s -avr '"${myname}:${mydirectory}${uriPath2}"' '"$fullpath1"';
-    sleep 1
-    mkdir -p "'"$dirpath2"'";
-    touch "'"$temppath2"'";
-    mv "'"$fullpath1"'" "'"$fullpath2"'"
+    if [ -f "'"$fullpath1"'" ];then
+        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
+        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
+        mv "'"$fullpath1"'" "'"$fullpath2"'"
+    fi
+    if [ ! -f "'"$fullpath2"'" ];then
+        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
+        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
+        mkdir -p "'"$rsynctempdir"'"; rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath2"'"
+    fi
     sleep 1
     rm -rf "'"$temppath1"'"
-    rm -rf "'"$temppath2"'";
-    rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
+    rm -rf "'"$temppath2"'"
+    [ -d "'"$rsynctempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
     '
 EOL
                 screen -d -m \
 ssh "$hostname" '
-    mkdir -p "'"$dirpath1"'"
-    mkdir -p "'"$rsynctempdir"'"
-    touch "'"$temppath1"'"
-    rsync -T "'"$rsynctempdir"'" -s -avr '"${myname}:${mydirectory}${uriPath2}"' '"$fullpath1"';
-    sleep 1
-    mkdir -p "'"$dirpath2"'";
-    touch "'"$temppath2"'";
-    mv "'"$fullpath1"'" "'"$fullpath2"'"
+    if [ -f "'"$fullpath1"'" ];then
+        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
+        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
+        mv "'"$fullpath1"'" "'"$fullpath2"'"
+    fi
+    if [ ! -f "'"$fullpath2"'" ];then
+        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
+        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
+        mkdir -p "'"$rsynctempdir"'"; rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath2"'"
+    fi
     sleep 1
     rm -rf "'"$temppath1"'"
-    rm -rf "'"$temppath2"'";
-    rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
+    rm -rf "'"$temppath2"'"
+    [ -d "'"$rsynctempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
     '
                 ;;
             ssh_mv_dir) #7
-                # fullpath1 dipastikan ada dulu.
-                # fullpath2 dipastikan tidak ada dulu.
-                # dirpath2 dipastikan ada dulu.
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
-    mkdir -p "'"$fullpath1"'";
-    mkdir -p "'"$dirpath2"'";
-    touch "'"$temppath1"'"
-    touch "'"$temppath2"'";
-    mv "'"$fullpath1"'" "'"$fullpath2"'"
+    if [ -d "'"$fullpath1"'" ];then
+        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
+        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
+        mv "'"$fullpath1"'" "'"$fullpath2"'"
+    fi
     sleep 1
     rm -rf "'"$temppath1"'"
     rm -rf "'"$temppath2"'";
-done
     '
 EOL
                 screen -d -m \
 ssh "$hostname" '
-    mkdir -p "'"$fullpath1"'";
-    mkdir -p "'"$dirpath2"'";
-    touch "'"$temppath1"'"
-    touch "'"$temppath2"'";
-    mv "'"$fullpath1"'" "'"$fullpath2"'"
+    if [ -d "'"$fullpath1"'" ];then
+        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
+        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
+        mv "'"$fullpath1"'" "'"$fullpath2"'"
+    fi
     sleep 1
     rm -rf "'"$temppath1"'"
     rm -rf "'"$temppath2"'";
-    done
     '
                 ;;
         esac
