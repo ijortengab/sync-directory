@@ -146,8 +146,8 @@ doStop() {
 }
 
 doUpdate() {
-    local updated updated_host hostname _updated updated_host_file rsynctempdir
-    local _lines rsynctempdir
+    local updated updated_host hostname _updated updated_host_file tempdir
+    local _lines tempdir
     while IFS= read -r hostname; do
         updated_host_file="${instance_dir}/_updated_${hostname}.txt"
         rm -rf "$updated_host_file"
@@ -187,10 +187,10 @@ doUpdate() {
         echo "Pull update from host: ${updated_host}"
         echo "[directory] ("$(date +%Y-%m-%d\ %H:%M:%S)") Pull update from host: ${updated_host}." >> "$log_file"
         if [[ "${#exclude[@]}" == 0 ]];then
-            rsynctempdir="${mydirectory}/.tmp.sync-directory"
-            mkdir -p "$rsynctempdir"
-            rsync -T "$rsynctempdir" -avr -u "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/" 2>&1 | tee -a "$rsync_output_file"
-            rmdir --ignore-fail-on-non-empty "$rsynctempdir"
+            tempdir="${mydirectory}/.tmp.sync-directory"
+            mkdir -p "$tempdir"
+            rsync -T "$tempdir" -avr -u "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/" 2>&1 | tee -a "$rsync_output_file"
+            rmdir --ignore-fail-on-non-empty "$tempdir"
             date +%s%n%Y%m%d-%H%M%S > "$updated_file"
         else
             while true; do
@@ -217,10 +217,10 @@ doUpdate() {
                 if [[ $_lines -lt 1 ]];then
                     break
                 fi
-                rsynctempdir="${mydirectory}/.tmp.sync-directory"
-                mkdir -p "$rsynctempdir"
-                rsync -T "$rsynctempdir" -avr -u --files-from="$rsync_list_file" "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/"  2>&1 | tee -a "$rsync_output_file"
-                rmdir --ignore-fail-on-non-empty "$rsynctempdir"
+                tempdir="${mydirectory}/.tmp.sync-directory"
+                mkdir -p "$tempdir"
+                rsync -T "$tempdir" -avr -u --files-from="$rsync_list_file" "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/"  2>&1 | tee -a "$rsync_output_file"
+                rmdir --ignore-fail-on-non-empty "$tempdir"
                 date +%s%n%Y%m%d-%H%M%S > "$updated_file"
                 break
             done
@@ -507,7 +507,7 @@ doIt() {
     uriPath1="$2"
     uriPath2="$3"
     while IFS= read -r hostname; do
-        rsynctempdir="${DIRECTORIES[$hostname]}/.tmp.sync-directory"
+        tempdir="${DIRECTORIES[$hostname]}/.tmp.sync-directory"
         fullpath1="${DIRECTORIES[$hostname]}${uriPath1}"
         dirpath1=$(dirname "$fullpath1")
         basename1=$(basename "$fullpath1")
@@ -532,19 +532,19 @@ doIt() {
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
     mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
-    mkdir -p "'"$rsynctempdir"'"; rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath1}"'" "'"$fullpath1"'"
+    mkdir -p "'"$tempdir"'"; rsync -T "'"$tempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath1}"'" "'"$fullpath1"'"
     sleep 1
     rm -rf "'"$temppath1"'"
-    [ -d "'"$rsynctempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
+    [ -d "'"$tempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$tempdir"'"
     '
 EOL
                 screen -d -m \
 ssh "$hostname" '
     mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
-    mkdir -p "'"$rsynctempdir"'"; rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath1}"'" "'"$fullpath1"'"
+    mkdir -p "'"$tempdir"'"; rsync -T "'"$tempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath1}"'" "'"$fullpath1"'"
     sleep 1
     rm -rf "'"$temppath1"'"
-    [ -d "'"$rsynctempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
+    [ -d "'"$tempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$tempdir"'"
     '
                 ;;
             ssh_rm) #2
@@ -577,12 +577,12 @@ ssh "$hostname" '
     if [ ! -f "'"$fullpath2"'" ];then
         mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
         mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
-        mkdir -p "'"$rsynctempdir"'"; rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath2"'"
+        mkdir -p "'"$tempdir"'"; rsync -T "'"$tempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath2"'"
     fi
     sleep 1
     rm -rf "'"$temppath1"'"
     rm -rf "'"$temppath2"'"
-    [ -d "'"$rsynctempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
+    [ -d "'"$tempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$tempdir"'"
     '
 EOL
                 screen -d -m \
@@ -595,12 +595,12 @@ ssh "$hostname" '
     if [ ! -f "'"$fullpath2"'" ];then
         mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
         mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
-        mkdir -p "'"$rsynctempdir"'"; rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath2"'"
+        mkdir -p "'"$tempdir"'"; rsync -T "'"$tempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath2"'"
     fi
     sleep 1
     rm -rf "'"$temppath1"'"
     rm -rf "'"$temppath2"'"
-    [ -d "'"$rsynctempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
+    [ -d "'"$tempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$tempdir"'"
     '
                 ;;
             ssh_rename_dir) #4
@@ -652,12 +652,12 @@ ssh "$hostname" '
     if [ ! -f "'"$fullpath2"'" ];then
         mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
         mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
-        mkdir -p "'"$rsynctempdir"'"; rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath2"'"
+        mkdir -p "'"$tempdir"'"; rsync -T "'"$tempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath2"'"
     fi
     sleep 1
     rm -rf "'"$temppath1"'"
     rm -rf "'"$temppath2"'"
-    [ -d "'"$rsynctempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
+    [ -d "'"$tempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$tempdir"'"
     '
 EOL
                 screen -d -m \
@@ -670,12 +670,12 @@ ssh "$hostname" '
     if [ ! -f "'"$fullpath2"'" ];then
         mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
         mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
-        mkdir -p "'"$rsynctempdir"'"; rsync -T "'"$rsynctempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath2"'"
+        mkdir -p "'"$tempdir"'"; rsync -T "'"$tempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath2"'"
     fi
     sleep 1
     rm -rf "'"$temppath1"'"
     rm -rf "'"$temppath2"'"
-    [ -d "'"$rsynctempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$rsynctempdir"'"
+    [ -d "'"$tempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$tempdir"'"
     '
                 ;;
             ssh_mv_dir) #7
