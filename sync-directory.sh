@@ -230,17 +230,21 @@ doUpdate() {
 }
 
 doTest() {
-    while IFS= read -r hostname; do
-        echo '- Test connect to host '"$hostname"'.'
+    local array_list_other
+    # hostname tidak boleh mengandung karakter spasi/whitespace.
+    array_list_other=$(tr '\n' ' ' <<< "$list_other")
+    for hostname in ${array_list_other[@]}; do
+        echo -e '- '"\e[33m$hostname\e[0m"
+        echo '  Test connect from '"$myname"' to host '"$hostname"'.'
         echo -n '  '; ssh "$hostname" 'echo -e "\e[32mSuccess\e[0m"'
         if [[ $? == 0 ]];then
-            echo '  Test connect back from host '"$hostname"' to '"$myname"
+            echo '  Test connect back from host '"$hostname"' to '"$myname"'.'
             echo -n '  '; ssh "$hostname" 'ssh "'"$myname"'" echo -e "\\\e[32mSuccess\\\e[0m"'
             if [[ $? == 0 ]];then
                 file=$(mktemp)
                 content=$RANDOM
                 echo $content > $file
-                echo '  Test host '"$hostname"' pull a file from '"$myname"
+                echo '  Test host '"$hostname"' pull a file from '"$myname"'.'
                 echo -n '  '; ssh "$hostname" '
                     temp=$(mktemp)
                     rsync -avr "'"$myname"'":"'"$file"'" "'"$file"'" &> $temp
@@ -250,7 +254,7 @@ doTest() {
                 rm "$file"
             fi
         fi
-    done <<< "$list_other"
+    done
 }
 
 doStatus() {
