@@ -225,7 +225,6 @@ doUpdate() {
                 break
             done
         fi
-
     }
 }
 
@@ -271,9 +270,13 @@ doStatus() {
 }
 
 case "$1" in
-    stop) doStop; exit;;
     status) doStatus; exit;;
     test) doTest; exit;;
+    stop)
+        echo "[directory] ("$(date +%Y-%m-%d\ %H:%M:%S)") Stop watching." >> "$log_file"
+        doStop;
+        exit
+        ;;
     update)
         doUpdate
         exit
@@ -314,192 +317,243 @@ command_file="${instance_dir}/_command.txt"; updated_file="${instance_dir}/_upda
 #5 ssh_mkdir
 #6 ssh_mv_file
 #7 ssh_mv_dir
-parseLineContents() {
-    local LINEBELOW _linecontent _linecontentbelow
-    # Jika "$line_file" kehapus, maka pastikan baris yang sudah di proses
-    # tidak lagi digunakan.
-    sleep .5
-    while true; do
-        _linecontent=$(sed "$LINE"'q;d' "$queue_file")
-        if [[ "${_linecontent:0:1}" == '=' ]];then
-            let LINE++
-            continue
-        fi
-        break
-    done
-    while true; do
-        sleep .5
-        _linecontent=$(sed "$LINE"'q;d' "$queue_file")
-        _event=$(echo "$_linecontent" | cut -d' ' -f1)
-        _state=$(echo "$_linecontent" | cut -d' ' -f2)
-        _path=$(echo "$_linecontent" | sed 's|'"${_event} ${_state} "'||')
-        let "LINEBELOW = $LINE + 1"
-        _linecontentbelow=$(sed "$LINEBELOW"'q;d' "$queue_file")
-        _eventbelow=$(echo "$_linecontentbelow" | cut -d' ' -f1)
-        _statebelow=$(echo "$_linecontentbelow" | cut -d' ' -f2)
-        _pathbelow=$(echo "$_linecontentbelow" | sed 's|'"${_eventbelow} ${_statebelow} "'||')
-        if [[ "$_event" == "CREATE" && "$_state" == "(isfileisnotdir)" && "$_eventbelow" == "MODIFY" && "$_statebelow" == "(isfileisnotdir)" && "$_path" == "$_pathbelow" ]];then
-            # Contoh kasus:
-            # touch a.txt (file belum ada sebelumnya)
-            # echo 'anu' > a.txt (file belum ada sebelumnya)
-            ACTION='ssh_rsync'
-            ARGUMENT1="$_path"
-            sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
-            sed -i "$LINEBELOW"'s|^.*$|'"=${_linecontentbelow}"'|' "$queue_file"
-            let LINE++;
-            break
-        elif [[ "$_event" == "CREATE" && "$_state" == "(isfileisnotdir)" ]];then
-            # Contoh kasus:
-            # klik kanan pada windows explorer, new file.
-            ACTION='ssh_rsync'
-            ARGUMENT1="$_path"
-            sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
-            break
-        elif [[ "$_event" == "MODIFY" && "$_state" == "(isfileisnotdir)" && "$_eventbelow" == "MODIFY" && "$_statebelow" == "(isfileisnotdir)" && "$_path" == "$_pathbelow" ]];then
-            # Contoh kasus:
-            # echo 'anu' > a.txt (file sudah ada sebelumnya)
-            ACTION='ssh_rsync'
-            ARGUMENT1="$_path"
-            sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
-            sed -i "$LINEBELOW"'s|^.*$|'"=${_linecontentbelow}"'|' "$queue_file"
-            let LINE++;
-            break
-        elif [[ "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" && "$_eventbelow" == "CREATE,ISDIR" && "$_statebelow" == "(isnotfileisdir)" && $(basename "$_path") == $(basename "$_pathbelow") ]];then
-            # Contoh kasus:
-            # mv ini.d itu.d (directory itu.d sudah ada sebelumnya)
-            ACTION='ssh_mv_dir'
-            ARGUMENT1="$_path"
-            ARGUMENT2="$_pathbelow"
-            sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
-            sed -i "$LINEBELOW"'s|^.*$|'"=${_linecontentbelow}"'|' "$queue_file"
-            let LINE++;
-            break
-        elif [[ "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" && "$_eventbelow" == "CREATE" && "$_statebelow" == "(isfileisnotdir)" && $(basename "$_path") == $(basename "$_pathbelow") ]];then
-            # Contoh kasus:
-            # mv anu.txt itu.d (directory itu.d sudah ada sebelumnya)
-            ACTION='ssh_mv_file'
-            ARGUMENT1="$_path"
-            ARGUMENT2="$_pathbelow"
-            sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
-            sed -i "$LINEBELOW"'s|^.*$|'"=${_linecontentbelow}"'|' "$queue_file"
-            let LINE++;
-            break
-        elif [[ "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" ]];then
-            # Contoh kasus:
-            # rm a.txt (file sudah ada sebelumnya)
-            ACTION='ssh_rm'
-            ARGUMENT1="$_path"
-            sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
-            break
-        elif [[ "$_event" == "MODIFY" && "$_state" == "(isfileisnotdir)" ]];then
-            # Contoh kasus:
-            # echo 'anu' >> a.txt (file sudah ada sebelumnya)
-            ACTION='ssh_rsync'
-            ARGUMENT1="$_path"
-            sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
-            break
-        elif [[ "$_event" == "MODIFY,ISDIR" && "$_state" == "(isnotfileisdir)" &&  "$_eventbelow" == "MODIFY,ISDIR" && "$_statebelow" == "(isnotfileisdir)" && "$_path" == "$_pathbelow" ]];then
-            # Coret satu dulu.
-            sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
-            let LINE++;
-            stop=
-            until [[ -n "$stop" ]]; do
-                # Restart:
-                _linecontent="$_linecontentbelow"
-                _event="$_eventbelow"
-                _state="$_statebelow"
-                _path=$"$_pathbelow"
-                let "LINEBELOW = $LINE + 1"
-                _linecontentbelow=$(sed "$LINEBELOW"'q;d' "$queue_file")
-                _eventbelow=$(echo "$_linecontentbelow" | cut -d' ' -f1)
-                _statebelow=$(echo "$_linecontentbelow" | cut -d' ' -f2)
-                _pathbelow=$(echo "$_linecontentbelow" | sed 's|'"${_eventbelow} ${_statebelow} "'||')
-                if [[ "$_event" == "MODIFY,ISDIR" && "$_state" == "(isnotfileisdir)" &&  "$_eventbelow" == "MODIFY,ISDIR" && "$_statebelow" == "(isnotfileisdir)" && "$_path" == "$_pathbelow" ]];then
-                    # Coret satu dulu.
-                    sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
-                    let LINE++;
-                else
-                    sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
-                    stop=1
-                fi
-            done
-            break
-        elif [[ "$_event" == "CREATE,ISDIR" && "$_state" == "(isnotfileisdir)" &&  "$_eventbelow" == "CREATE,ISDIR" && "$_statebelow" == "(isnotfileisdir)" && "$_pathbelow" =~ ^"$_path" ]];then
-            # Contoh kasus:
-            # mkdir -p aa/bb (directory belum ada sebelumnya)
-            # mkdir -p cc/dd/ee (directory belum ada sebelumnya)
-            ACTION='ssh_mkdir'
-            ARGUMENT1="$_pathbelow"
-            # Coret satu dulu.
-            sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
-            let LINE++;
-            # Restart:
-            _linecontent="$_linecontentbelow"
-            _event="$_eventbelow"
-            _state="$_statebelow"
-            _path=$"$_pathbelow"
+#8 ssh_rmdir
+#9 ssh_mkdir_parents
+
+populateVariables() {
+    case "$1" in
+        init)
+            _linecontent=$(sed "$LINE"'q;d' "$queue_file")
+            _event=$(echo "$_linecontent" | cut -d' ' -f1)
+            _state=$(echo "$_linecontent" | cut -d' ' -f2)
+            _path=$(echo "$_linecontent" | sed 's|'"${_event} ${_state} "'||')
+            _dirname=$(dirname "$_path")
             let "LINEBELOW = $LINE + 1"
             _linecontentbelow=$(sed "$LINEBELOW"'q;d' "$queue_file")
             _eventbelow=$(echo "$_linecontentbelow" | cut -d' ' -f1)
             _statebelow=$(echo "$_linecontentbelow" | cut -d' ' -f2)
             _pathbelow=$(echo "$_linecontentbelow" | sed 's|'"${_eventbelow} ${_statebelow} "'||')
-            stop=
-            until [[ -n "$stop" ]]; do
-                if [[ "$_event" == "CREATE,ISDIR" && "$_state" == "(isnotfileisdir)" &&  "$_eventbelow" == "MODIFY,ISDIR" && "$_statebelow" == "(isnotfileisdir)" && "$_path" =~ ^"$_pathbelow" ]];then
-                    ARGUMENT1="$_path"
-                    sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
-                    sed -i "$LINEBELOW"'s|^.*$|'"=${_linecontentbelow}"'|' "$queue_file"
-                    let LINE++;
-                    # Test dulu:
-                    let LINE++;
-                    _linecontent=$(sed "$LINE"'q;d' "$queue_file")
-                    _event=$(echo "$_linecontent" | cut -d' ' -f1)
-                    _state=$(echo "$_linecontent" | cut -d' ' -f2)
-                    _path=$(echo "$_linecontent" | sed 's|'"${_event} ${_state} "'||')
-                    let "LINEBELOW = $LINE + 1"
-                    _linecontentbelow=$(sed "$LINEBELOW"'q;d' "$queue_file")
-                    _eventbelow=$(echo "$_linecontentbelow" | cut -d' ' -f1)
-                    _statebelow=$(echo "$_linecontentbelow" | cut -d' ' -f2)
-                    _pathbelow=$(echo "$_linecontentbelow" | sed 's|'"${_eventbelow} ${_statebelow} "'||')
-                else
-                    # Kembali ke line sebelumnya.
-                    let LINE--;
-                    stop=1
-                fi
-            done
-            break
-        elif [[ "$_event" == "CREATE,ISDIR" && "$_state" == "(isnotfileisdir)" ]];then
-            ACTION='ssh_mkdir'
-            ARGUMENT1="$_path"
-            sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
-            break
-        elif [[ "$_event" == "MOVED_FROM" && "$_state" == "(isnotfileisnotdir)" && "$_eventbelow" == "MOVED_TO,ISDIR" && "$_statebelow" == "(isnotfileisdir)" && ! "$_path" == "$_pathbelow" ]];then
-            # Contoh kasus:
-            # mv ini.d itu.d (directory itu.d belum ada sebelumnya)
-            ACTION='ssh_rename_dir'
-            ARGUMENT1="$_path"
-            ARGUMENT2="$_pathbelow"
-            sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
-            sed -i "$LINEBELOW"'s|^.*$|'"=${_linecontentbelow}"'|' "$queue_file"
-            let LINE++;
-            break
-        elif [[ "$_event" == "MOVED_FROM" && "$_state" == "(isnotfileisnotdir)" && "$_eventbelow" == "MOVED_TO" && "$_statebelow" == "(isfileisnotdir)" && ! "$_path" == "$_pathbelow" ]];then
-            # Contoh kasus:
-            # mv ini.txt itu.txt (file itu.txt belum ada sebelumnya)
-            ACTION='ssh_rename_file'
-            ARGUMENT1="$_path"
-            ARGUMENT2="$_pathbelow"
-            sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
-            sed -i "$LINEBELOW"'s|^.*$|'"=${_linecontentbelow}"'|' "$queue_file"
-            let LINE++;
-            break
+            _dirnamebelow=$(dirname "$_pathbelow")
+            ;;
+        up)
+            _linecontent="$_linecontentbelow"
+            _event="$_eventbelow"
+            _state="$_statebelow"
+            _path="$_pathbelow"
+            _dirname="$_dirnamebelow"
+            let "LINEBELOW = $LINE + 1"
+            _linecontentbelow=$(sed "$LINEBELOW"'q;d' "$queue_file")
+            _eventbelow=$(echo "$_linecontentbelow" | cut -d' ' -f1)
+            _statebelow=$(echo "$_linecontentbelow" | cut -d' ' -f2)
+            _pathbelow=$(echo "$_linecontentbelow" | sed 's|'"${_eventbelow} ${_statebelow} "'||')
+            _dirnamebelow=$(dirname "$_pathbelow")
+    esac
+}
+parseLineContents() {
+    local LINEBELOW _linecontent _linecontentbelow _first
+    # Jika "$line_file" kehapus, maka pastikan baris yang sudah di proses
+    # tidak lagi digunakan.
+    sleep .5
+    while true; do
+        _linecontent=$(sed "$LINE"'q;d' "$queue_file")
+        _first="${_linecontent:0:1}"
+        # = rsync
+        # - delete
+        # ~ rename
+        # + create
+        # % dir modify
+        # > moving
+        # ? ignore
+        if [[ "$_first" == '=' || "$_first" == '-' || "$_first" == '~' || "$_first" == '+' || "$_first" == '%' || "$_first" == '>' || "$_first" == '?' ]];then
+            let LINE++
+            continue
         fi
+        break
+    done
+    sleep .5
+    populateVariables init
+    if [[ "$_event" == "CREATE" && "$_state" == "(isfileisnotdir)" && "$_eventbelow" == "MODIFY" && "$_statebelow" == "(isfileisnotdir)" && "$_path" == "$_pathbelow" ]];then
+        # Contoh kasus:
+        # touch a.txt (file belum ada sebelumnya)
+        # echo 'anu' > a.txt (file belum ada sebelumnya)
+        ACTION='ssh_rsync'
+        ARGUMENT1="$_path"
+        sed -i "$LINE"'s|^.*$|'"+${_linecontent}"'|' "$queue_file"
+        sed -i "$LINEBELOW"'s|^.*$|'"+${_linecontentbelow}"'|' "$queue_file"
+        let LINE++;
+    elif [[ "$_event" == "CREATE" && "$_state" == "(isfileisnotdir)" ]];then
+        # Contoh kasus:
+        # klik kanan pada windows explorer, new file.
+        ACTION='ssh_rsync'
+        ARGUMENT1="$_path"
+        sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
+    elif [[ "$_event" == "MODIFY" && "$_state" == "(isfileisnotdir)" && "$_eventbelow" == "MODIFY" && "$_statebelow" == "(isfileisnotdir)" && "$_path" == "$_pathbelow" ]];then
+        # Contoh kasus:
+        # echo 'anu' > a.txt (file sudah ada sebelumnya)
+        ACTION='ssh_rsync'
+        ARGUMENT1="$_path"
+        sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
+        sed -i "$LINEBELOW"'s|^.*$|'"=${_linecontentbelow}"'|' "$queue_file"
+        let LINE++;
+    elif [[ "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" && "$_eventbelow" == "CREATE,ISDIR" && "$_statebelow" == "(isnotfileisdir)" && $(basename "$_path") == $(basename "$_pathbelow") ]];then
+        # Contoh kasus:
+        # mv ini.d itu.d (directory itu.d sudah ada sebelumnya)
+        ACTION='ssh_mv_dir'
+        ARGUMENT1="$_path"
+        ARGUMENT2="$_pathbelow"
+        sed -i "$LINE"'s|^.*$|'">${_linecontent}"'|' "$queue_file"
+        sed -i "$LINEBELOW"'s|^.*$|'">${_linecontentbelow}"'|' "$queue_file"
+        let LINE++;
+    elif [[ "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" && "$_eventbelow" == "CREATE" && "$_statebelow" == "(isfileisnotdir)" && $(basename "$_path") == $(basename "$_pathbelow") ]];then
+        # Contoh kasus:
+        # mv anu.txt itu.d (directory itu.d sudah ada sebelumnya)
+        ACTION='ssh_mv_file'
+        ARGUMENT1="$_path"
+        ARGUMENT2="$_pathbelow"
+        sed -i "$LINE"'s|^.*$|'">${_linecontent}"'|' "$queue_file"
+        sed -i "$LINEBELOW"'s|^.*$|'">${_linecontentbelow}"'|' "$queue_file"
+        let LINE++;
+    elif [[ "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" ]];then
+        # Contoh kasus:
+        # rm a.txt (file sudah ada sebelumnya)
+        ACTION='ssh_rm'
+        ARGUMENT1="$_path"
+        sed -i "$LINE"'s|^.*$|'"-${_linecontent}"'|' "$queue_file"
+        # Test dulu jika terjadi rm -rf dir/
+        backup_line="$LINE"
+        isrmdir=
+        while true; do
+            if [[ "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" &&  "$_eventbelow" == "DELETE" && "$_statebelow" == "(isnotfileisnotdir)" && "$_dirname" == "$_dirnamebelow" ]];then
+                let LINE++;
+                populateVariables up
+                continue
+            fi
+            if [[ "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" && "$_eventbelow" == "MODIFY" &&  "$_statebelow" == "(isnotfileisnotdir)" && "$_dirname" == "$_pathbelow" ]];then
+                let LINE++;
+                populateVariables up
+                if [[ "$_event" == "MODIFY" && "$_state" == "(isnotfileisnotdir)" &&  "$_eventbelow" == "DELETE" && "$_statebelow" == "(isnotfileisnotdir)" && "$_path" == "$_pathbelow" ]];then
+                    let LINE++;
+                    populateVariables up
+                    if [[ "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" &&  "$_eventbelow" == "MODIFY" && "$_statebelow" == "(isnotfileisnotdir)" && "$_dirname" == "$_pathbelow" ]];then
+                        let LINE++;
+                    elif [[ "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" &&  "$_eventbelow" == "MODIFY,ISDIR" && "$_statebelow" == "(isnotfileisnotdir)" && "$_dirname" == "$_pathbelow" ]];then
+                        let LINE++;
+                    elif [[ "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" &&  "$_eventbelow" == "MODIFY,ISDIR" && "$_statebelow" == "(isnotfileisdir)" && "$_dirname" == "$_pathbelow" ]];then
+                        let LINE++;
+                    fi
+                    isrmdir="$LINE"
+                fi
+                break
+            fi
+            if [[ "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" && "$_eventbelow" == "MODIFY,ISDIR" &&  "$_statebelow" == "(isnotfileisnotdir)" && "$_dirname" == "$_pathbelow" ]];then
+                let LINE++;
+                populateVariables up
+                if [[ "$_event" == "MODIFY,ISDIR" && "$_state" == "(isnotfileisnotdir)" &&  "$_eventbelow" == "DELETE" && "$_statebelow" == "(isnotfileisnotdir)" && "$_path" == "$_pathbelow" ]];then
+                    let LINE++;
+                    populateVariables up
+                    if [[ "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" &&  "$_eventbelow" == "MODIFY" && "$_statebelow" == "(isnotfileisnotdir)" && "$_dirname" == "$_pathbelow" ]];then
+                        let LINE++;
+                    elif [[ "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" &&  "$_eventbelow" == "MODIFY,ISDIR" && "$_statebelow" == "(isnotfileisnotdir)" && "$_dirname" == "$_pathbelow" ]];then
+                        let LINE++;
+                    elif [[ "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" &&  "$_eventbelow" == "MODIFY,ISDIR" && "$_statebelow" == "(isnotfileisdir)" && "$_dirname" == "$_pathbelow" ]];then
+                        let LINE++;
+                    fi
+                    isrmdir="$LINE"
+                fi
+                break
+            fi
+            break
+        done
+        LINE="$backup_line"
+        if [[ -n "$isrmdir" ]];then
+            ACTION='ssh_rmdir'
+            ARGUMENT1="$_path"
+            _linecontent=$(sed "$LINE"'q;d' "$queue_file")
+            until [[ "$LINE" -ge "$isrmdir" ]]; do
+                let LINE++;
+                _linecontent=$(sed "$LINE"'q;d' "$queue_file")
+                sed -i "$LINE"'s|^.*$|'"-${_linecontent}"'|' "$queue_file"
+            done
+        fi
+    elif [[ "$_event" == "MODIFY" && "$_state" == "(isfileisnotdir)" ]];then
+        # Contoh kasus:
+        # echo 'anu' >> a.txt (file sudah ada sebelumnya)
+        ACTION='ssh_rsync'
+        ARGUMENT1="$_path"
+        sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
+    elif [[ "$_event" == "MODIFY,ISDIR" && "$_state" == "(isnotfileisdir)" ]];then
+        # Coret satu dulu.
+        sed -i "$LINE"'s|^.*$|'"%${_linecontent}"'|' "$queue_file"
+        let LINE++;
+        stop=
+        until [[ -n "$stop" ]]; do
+            # Restart:
+            populateVariables up
+            if [[ "$_event" == "MODIFY,ISDIR" && "$_state" == "(isnotfileisdir)" ]];then
+                # Coret satu dulu.
+                sed -i "$LINE"'s|^.*$|'"%${_linecontent}"'|' "$queue_file"
+                let LINE++;
+            else
+                # sed -i "$LINE"'s|^.*$|'"%${_linecontent}"'|' "$queue_file"
+                let LINE--;
+                stop=1
+            fi
+        done
+    elif [[ "$_event" == "CREATE,ISDIR" && "$_state" == "(isnotfileisdir)" &&  "$_eventbelow" == "MODIFY,ISDIR" && "$_statebelow" == "(isnotfileisdir)" && "$_dirname" == "$_pathbelow" ]];then
+        # Contoh kasus:
+        # mkdir -p aa/bb (directory belum ada sebelumnya)
+        # mkdir -p cc/dd/ee (directory belum ada sebelumnya)
+        ACTION='ssh_mkdir'
+        ARGUMENT1="$_path"
+        # Coret
+        sed -i "$LINE"'s|^.*$|'"+${_linecontent}"'|' "$queue_file"
+        sed -i "$LINEBELOW"'s|^.*$|'"+${_linecontentbelow}"'|' "$queue_file"
+        let LINE++;
+        let LINE++;
+        stop=
+        until [[ -n "$stop" ]]; do
+            populateVariables init
+            if [[ "$_event" == "CREATE,ISDIR" && "$_state" == "(isnotfileisdir)" &&  "$_eventbelow" == "MODIFY,ISDIR" && "$_statebelow" == "(isnotfileisdir)" && "$_dirname" == "$_pathbelow" && "$_dirname" == "$ARGUMENT1" ]];then
+                ACTION='ssh_mkdir_parents'
+                ARGUMENT1="$_path"
+                sed -i "$LINE"'s|^.*$|'"+${_linecontent}"'|' "$queue_file"
+                sed -i "$LINEBELOW"'s|^.*$|'"+${_linecontentbelow}"'|' "$queue_file"
+                let LINE++;
+                let LINE++;
+            else
+                # Kembali ke line sebelumnya.
+                let LINE--;
+                stop=1
+            fi
+        done
+    elif [[ "$_event" == "CREATE,ISDIR" && "$_state" == "(isnotfileisdir)" ]];then
+        ACTION='ssh_mkdir'
+        ARGUMENT1="$_path"
+        sed -i "$LINE"'s|^.*$|'"+${_linecontent}"'|' "$queue_file"
+    elif [[ "$_event" == "MOVED_FROM" && "$_state" == "(isnotfileisnotdir)" && "$_eventbelow" == "MOVED_TO,ISDIR" && "$_statebelow" == "(isnotfileisdir)" && ! "$_path" == "$_pathbelow" ]];then
+        # Contoh kasus:
+        # mv ini.d itu.d (directory itu.d belum ada sebelumnya)
+        ACTION='ssh_rename_dir'
+        ARGUMENT1="$_path"
+        ARGUMENT2="$_pathbelow"
+        sed -i "$LINE"'s|^.*$|'"~${_linecontent}"'|' "$queue_file"
+        sed -i "$LINEBELOW"'s|^.*$|'"~${_linecontentbelow}"'|' "$queue_file"
+        let LINE++;
+    elif [[ "$_event" == "MOVED_FROM" && "$_state" == "(isnotfileisnotdir)" && "$_eventbelow" == "MOVED_TO" && "$_statebelow" == "(isfileisnotdir)" && ! "$_path" == "$_pathbelow" ]];then
+        # Contoh kasus:
+        # mv ini.txt itu.txt (file itu.txt belum ada sebelumnya)
+        ACTION='ssh_rename_file'
+        ARGUMENT1="$_path"
+        ARGUMENT2="$_pathbelow"
+        sed -i "$LINE"'s|^.*$|'"~${_linecontent}"'|' "$queue_file"
+        sed -i "$LINEBELOW"'s|^.*$|'"~${_linecontentbelow}"'|' "$queue_file"
+        let LINE++;
+    else
         # ignore else format line.
         ACTION='ignore'
         ARGUMENT1="$_linecontent"
-        sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
-        break
-    done
+        sed -i "$LINE"'s|^.*$|'"?${_linecontent}"'|' "$queue_file"
+    fi
 }
 
 doIt() {
@@ -547,12 +601,12 @@ ssh "$hostname" '
     [ -d "'"$tempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$tempdir"'"
     '
                 ;;
-            ssh_rm) #2
+            ssh_rm|ssh_rmdir) #2
                 # Something bisa file atau direktori.
                 # Gunakan sleep untuk mengerem command remove file temp.
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
-    mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
+    touch "'"$temppath1"'"
     rm -rf "'"$fullpath1"'";
     sleep 1;
     rm -rf "'"$temppath1"'"
@@ -566,7 +620,7 @@ ssh "$hostname" '
     rm -rf "'"$temppath1"'"
     '
                 ;;
-            ssh_rename_file) #3
+            ssh_rename_file|ssh_mv_file) #3, #6
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
     if [ -f "'"$fullpath1"'" ];then
@@ -603,7 +657,7 @@ ssh "$hostname" '
     [ -d "'"$tempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$tempdir"'"
     '
                 ;;
-            ssh_rename_dir) #4
+            ssh_rename_dir|ssh_mv_dir) #4, #7
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
     if [ -d "'"$fullpath1"'" ];then
@@ -628,7 +682,7 @@ ssh "$hostname" '
     rm -rf "'"$temppath2"'";
     '
                 ;;
-            ssh_mkdir) #5
+            ssh_mkdir|ssh_mkdir_parents) #5
                 # mkdir terlalu rumit dan njelimit.
                 # jadi kita biarkan terjadi efek berantai.
                 cat <<EOL >> "$command_file"
@@ -639,68 +693,6 @@ EOL
                 screen -d -m \
 ssh "$hostname" '
     mkdir -p "'"$fullpath1"'";
-    '
-                ;;
-            ssh_mv_file) #6
-                cat <<EOL >> "$command_file"
-ssh "$hostname" '
-    if [ -f "'"$fullpath1"'" ];then
-        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
-        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
-        mv "'"$fullpath1"'" "'"$fullpath2"'"
-    fi
-    if [ ! -f "'"$fullpath2"'" ];then
-        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
-        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
-        mkdir -p "'"$tempdir"'"; rsync -T "'"$tempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath2"'"
-    fi
-    sleep 1
-    rm -rf "'"$temppath1"'"
-    rm -rf "'"$temppath2"'"
-    [ -d "'"$tempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$tempdir"'"
-    '
-EOL
-                screen -d -m \
-ssh "$hostname" '
-    if [ -f "'"$fullpath1"'" ];then
-        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
-        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
-        mv "'"$fullpath1"'" "'"$fullpath2"'"
-    fi
-    if [ ! -f "'"$fullpath2"'" ];then
-        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
-        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
-        mkdir -p "'"$tempdir"'"; rsync -T "'"$tempdir"'" -s -avr "'"${myname}:${mydirectory}${uriPath2}"'" "'"$fullpath2"'"
-    fi
-    sleep 1
-    rm -rf "'"$temppath1"'"
-    rm -rf "'"$temppath2"'"
-    [ -d "'"$tempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$tempdir"'"
-    '
-                ;;
-            ssh_mv_dir) #7
-                cat <<EOL >> "$command_file"
-ssh "$hostname" '
-    if [ -d "'"$fullpath1"'" ];then
-        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
-        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
-        mv "'"$fullpath1"'" "'"$fullpath2"'"
-    fi
-    sleep 1
-    rm -rf "'"$temppath1"'"
-    rm -rf "'"$temppath2"'";
-    '
-EOL
-                screen -d -m \
-ssh "$hostname" '
-    if [ -d "'"$fullpath1"'" ];then
-        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
-        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
-        mv "'"$fullpath1"'" "'"$fullpath2"'"
-    fi
-    sleep 1
-    rm -rf "'"$temppath1"'"
-    rm -rf "'"$temppath2"'";
     '
                 ;;
         esac
