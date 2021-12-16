@@ -353,7 +353,6 @@ parseLineContents() {
     local LINEBELOW _linecontent _linecontentbelow _first
     # Jika "$line_file" kehapus, maka pastikan baris yang sudah di proses
     # tidak lagi digunakan.
-    sleep .5
     while true; do
         _linecontent=$(sed "$LINE"'q;d' "$queue_file")
         _first="${_linecontent:0:1}"
@@ -370,7 +369,6 @@ parseLineContents() {
         fi
         break
     done
-    sleep .5
     populateVariables init
     if [[ "$_event" == "CREATE" && "$_state" == "(isfileisnotdir)" && "$_eventbelow" == "MODIFY" && "$_statebelow" == "(isfileisnotdir)" && "$_path" == "$_pathbelow" ]];then
         # Contoh kasus:
@@ -723,8 +721,9 @@ while inotifywait -q -e modify "$object_watched_2"; do
     if [[ $LINE -gt $LINES ]];then
         LINE=$LINES
     fi
+    waiting=0
     until [[ $LINE -gt $LINES ]]; do
-        sleep 1
+        sleep $waiting
         ACTION=; ARGUMENT1=; ARGUMENT2=
         parseLineContents
         [ -n "$ACTION" ] && echo "[queue] ${ACTION} ${ARGUMENT1} ${ARGUMENT2}" >> "$log_file"
@@ -734,6 +733,10 @@ while inotifywait -q -e modify "$object_watched_2"; do
         }
         let LINE++;
         LINES=$(wc -l < "$queue_file")
+        if [[ $LINES -ge $LINE ]];then
+            let "_diff = $LINES - $LINE"
+            [[ $_diff -le 1 ]] && waiting=1 || waiting=0
+        fi
     done
     # Dump current LINE for next trigger
     echo "$LINE" > "$line_file"
