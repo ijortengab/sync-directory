@@ -319,6 +319,7 @@ command_file="${instance_dir}/_command.txt"; updated_file="${instance_dir}/_upda
 #7 ssh_mv_dir
 #8 ssh_rmdir
 #9 ssh_mkdir_parents
+#10 ssh_rsync_office
 
 populateVariables() {
     case "$1" in
@@ -385,6 +386,72 @@ parseLineContents() {
         ACTION='ssh_rsync'
         ARGUMENT1="$_path"
         sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
+    elif [[ "$_event" == "CREATE" && "$_state" == "(isnotfileisnotdir)" ]];then
+        sleep 2
+        # Contoh kasus: nge-save file office .docx, .xlsx.
+        # Test dulu jika terjadi saving file office.
+        backup_line="$LINE"
+        issaveofficefile=
+        step=0
+        _office_temp="$_path"
+        _office_temp2=
+        _office_dirname="$_dirname"
+        _office_path=
+        # Test turun dulu.
+        let LINE++; populateVariables up
+        while true; do
+            if [[ "$_event" == "MODIFY,ISDIR" && "$_state" == "(isnotfileisdir)" && "$_path" == "$_office_dirname" ]];then
+                let LINE++; populateVariables up
+                continue
+            fi
+            if [[ "$step" == 0 && "$_event" == "MODIFY" && "$_state" == "(isnotfileisnotdir)" && "$_path" == "$_office_temp" ]];then
+                let LINE++; populateVariables up
+                continue
+            fi
+            if [[ "$step" == 0 && "$_event" == "MOVED_FROM" && "$_state" == "(isfileisnotdir)" && "$_dirname" == "$_office_dirname" ]];then
+                _office_path="$_path"
+                let LINE++; populateVariables up
+                step=1; continue
+            fi
+            if [[ "$step" == 1 && "$_event" == "MOVED_TO" && "$_state" == "(isnotfileisnotdir)" && "$_dirname" == "$_office_dirname" ]];then
+                _office_temp2="$_path"
+                let LINE++; populateVariables up
+                step=2; continue
+            fi
+            if [[ "$step" == 2 && "$_event" == "MOVED_FROM" && "$_state" == "(isnotfileisnotdir)" && "$_path" == "$_office_temp" ]];then
+                let LINE++; populateVariables up
+                step=3; continue
+            fi
+            if [[ "$step" == 3 && "$_event" == "MOVED_TO" && "$_state" == "(isfileisnotdir)" && "$_path" == "$_office_path" ]];then
+                let LINE++; populateVariables up
+                step=4; continue
+            fi
+            if [[ "$step" == 4 && "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" && "$_path" == "$_office_temp2" ]];then
+                let LINE++; populateVariables up
+                step=5; continue
+            fi
+            if [[ "$step" == 5 ]];then
+                let LINE--;
+                break
+            fi
+            break
+        done
+        [[ "$step" == 5 ]] && issaveofficefile="$LINE"
+        # Kembalikan ke semula.
+        LINE="$backup_line"
+        # echo "  [debug] \$LINE ${LINE}" >> "$log_file"
+        # echo "  [debug] \$issaveofficefile ${issaveofficefile}" >> "$log_file"
+        if [[ -n "$issaveofficefile" ]];then
+            ACTION='ssh_rsync_office'
+            ARGUMENT1="$_office_path"
+            _linecontent=$(sed "$LINE"'q;d' "$queue_file")
+            until [[ "$LINE" -gt "$issaveofficefile" ]]; do
+                _linecontent=$(sed "$LINE"'q;d' "$queue_file")
+                sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
+                let LINE++;
+            done
+            let LINE--;
+        fi
     elif [[ "$_event" == "MODIFY" && "$_state" == "(isfileisnotdir)" && "$_eventbelow" == "MODIFY" && "$_statebelow" == "(isfileisnotdir)" && "$_path" == "$_pathbelow" ]];then
         # Contoh kasus:
         # echo 'anu' > a.txt (file sudah ada sebelumnya)
@@ -580,7 +647,7 @@ doIt() {
         # echo "  [debug] \$basename2 ${basename2}" >> "$log_file"
         # echo "  [debug] \$temppath2 ${temppath2}" >> "$log_file"
         case "$style" in
-            ssh_rsync) #1
+            ssh_rsync|ssh_rsync_office) #1
                 cat <<EOL >> "$command_file"
 ssh "$hostname" '
     mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
