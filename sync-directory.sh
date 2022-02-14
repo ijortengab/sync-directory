@@ -145,9 +145,51 @@ doStop() {
     }
 }
 
+pullFrom() {
+    local updated_host="$1" tempdir _lines
+    echo "Pull update from host: ${updated_host}"
+    echo "[directory] ("$(date +%Y-%m-%d\ %H:%M:%S)") Pull update from host: ${updated_host}." >> "$log_file"
+    if [[ "${#exclude[@]}" == 0 ]];then
+        tempdir="${mydirectory}/.tmp.sync-directory"
+        mkdir -p "$tempdir"
+        rsync -T "$tempdir" -avr -u "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/" 2>&1 | tee -a "$rsync_output_file"
+        rmdir --ignore-fail-on-non-empty "$tempdir"
+    else
+        while true; do
+            rsync -n -avr -u "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/" 2>&1 | tee "$rsync_list_file"
+            _lines=$(wc -l < "$rsync_list_file")
+            if [[ $_lines -le 4 ]];then
+                break
+            fi
+            let "_bottom = $_lines - 3"
+            sed -n -i '2,'"$_bottom"'p' "$rsync_list_file"
+            sed -i '/\/$/d' "$rsync_list_file"
+            _lines=$(wc -l < "$rsync_list_file")
+            if [[ $_lines -lt 1 ]];then
+                break
+            fi
+            sed -i 's,^,/,g' "$rsync_list_file"
+            for i in "${exclude[@]}"; do
+                # escape slash
+                i=$(echo "$i" | sed 's,/,\\/,g')
+                sed -i -E '/'"${i}"'/d' "$rsync_list_file"
+            done
+            sed -i 's,^/,,g' "$rsync_list_file"
+            _lines=$(wc -l < "$rsync_list_file")
+            if [[ $_lines -lt 1 ]];then
+                break
+            fi
+            tempdir="${mydirectory}/.tmp.sync-directory"
+            mkdir -p "$tempdir"
+            rsync -T "$tempdir" -avr -u --files-from="$rsync_list_file" "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/"  2>&1 | tee -a "$rsync_output_file"
+            rmdir --ignore-fail-on-non-empty "$tempdir"
+            break
+        done
+    fi
+}
+
 doUpdate() {
-    local updated updated_host hostname _updated updated_host_file tempdir
-    local _lines tempdir
+    local updated updated_host hostname _updated updated_host_file
     while IFS= read -r hostname; do
         updated_host_file="${instance_dir}/_updated_${hostname}.txt"
         rm -rf "$updated_host_file"
@@ -170,13 +212,17 @@ doUpdate() {
     [[ ! "$updated" =~ ^[0-9]+$ ]] && {
         updated=
     }
+    echo -n "Current update date: "
+    [ -n "$updated" ] && date +%Y%m%d-%H%M%S -d '@'$updated || echo
     updated_host=
     while IFS= read -r hostname; do
+        echo -n "$hostname update date: "
         updated_host_file="${instance_dir}/_updated_${hostname}.txt"
         _updated=
         [[ -f "$updated_host_file" && -s "$updated_host_file" ]] && {
             _updated=$(<"$updated_host_file")
         }
+        [ -n "$_updated" ] && date +%Y%m%d-%H%M%S -d '@'$_updated || echo
         [[ $_updated =~ ^[0-9]+$ && $_updated -gt $updated ]] && {
             updated="$_updated"
             updated_host="$hostname"
@@ -184,48 +230,20 @@ doUpdate() {
         rm -rf "$updated_host_file"
     done <<< "$list_other"
     [ -n "$updated_host" ] && {
-        echo "Pull update from host: ${updated_host}"
-        echo "[directory] ("$(date +%Y-%m-%d\ %H:%M:%S)") Pull update from host: ${updated_host}." >> "$log_file"
-        if [[ "${#exclude[@]}" == 0 ]];then
-            tempdir="${mydirectory}/.tmp.sync-directory"
-            mkdir -p "$tempdir"
-            rsync -T "$tempdir" -avr -u "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/" 2>&1 | tee -a "$rsync_output_file"
-            rmdir --ignore-fail-on-non-empty "$tempdir"
-            date +%s%n%Y%m%d-%H%M%S -d '@'$updated > "$updated_file"
-        else
-            while true; do
-                rsync -n -avr -u "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/" 2>&1 | tee "$rsync_list_file"
-                _lines=$(wc -l < "$rsync_list_file")
-                if [[ $_lines -le 4 ]];then
-                    break
-                fi
-                let "_bottom = $_lines - 3"
-                sed -n -i '2,'"$_bottom"'p' "$rsync_list_file"
-                sed -i '/\/$/d' "$rsync_list_file"
-                _lines=$(wc -l < "$rsync_list_file")
-                if [[ $_lines -lt 1 ]];then
-                    break
-                fi
-                sed -i 's,^,/,g' "$rsync_list_file"
-                for i in "${exclude[@]}"; do
-                    # escape slash
-                    i=$(echo "$i" | sed 's,/,\\/,g')
-                    sed -i -E '/'"${i}"'/d' "$rsync_list_file"
-                done
-                sed -i 's,^/,,g' "$rsync_list_file"
-                _lines=$(wc -l < "$rsync_list_file")
-                if [[ $_lines -lt 1 ]];then
-                    break
-                fi
-                tempdir="${mydirectory}/.tmp.sync-directory"
-                mkdir -p "$tempdir"
-                rsync -T "$tempdir" -avr -u --files-from="$rsync_list_file" "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/"  2>&1 | tee -a "$rsync_output_file"
-                rmdir --ignore-fail-on-non-empty "$tempdir"
-                date +%s%n%Y%m%d-%H%M%S -d '@'$updated > "$updated_file"
-                break
-            done
-        fi
+        pullFrom "$updated_host"
+        date +%s%n%Y%m%d-%H%M%S -d '@'$updated > "$updated_file"
     }
+}
+
+doPull() {
+    local updated updated_host hostname _updated updated_host_file tempdir
+    local _lines tempdir
+    echo "Pull update from all host."
+    echo "[directory] ("$(date +%Y-%m-%d\ %H:%M:%S)") Pull update from all host." >> "$log_file"
+    while IFS= read -r updated_host; do
+        pullFrom "$updated_host"
+    done <<< "$list_other"
+    date +%s%n%Y%m%d-%H%M%S > "$updated_file"
 }
 
 doTest() {
@@ -288,8 +306,12 @@ case "$1" in
     restart)
         doStop
         ;;
+    pull)
+        doPull
+        exit
+        ;;
     *)
-        echo Command available: test, start, status, stop, update, restart. >&2
+        echo Command available: test, start, status, stop, update, restart, pull. >&2
         exit 1
 esac
 
