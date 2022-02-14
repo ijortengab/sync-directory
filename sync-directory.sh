@@ -131,7 +131,7 @@ doStop() {
     while read -r _pid; do
         [ -n "$_pid" ] && PIDS+=("$_pid")
     done <<< $(getPid inotifywait "$command")
-    command="${bin} -q -e modify,create,delete,move -m -r --format ${format} ${object_watched}"
+    command="${bin} -q -e modify,create,delete,move -m -r --timefmt %Y%m%d-%H%M%S --format ${format} ${object_watched}"
     while read -r _pid; do
         [ -n "$_pid" ] && PIDS+=("$_pid")
     done <<< $(getPid inotifywait "$command")
@@ -191,7 +191,7 @@ doUpdate() {
             mkdir -p "$tempdir"
             rsync -T "$tempdir" -avr -u "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/" 2>&1 | tee -a "$rsync_output_file"
             rmdir --ignore-fail-on-non-empty "$tempdir"
-            date +%s%n%Y%m%d-%H%M%S > "$updated_file"
+            date +%s%n%Y%m%d-%H%M%S -d '@'$updated > "$updated_file"
         else
             while true; do
                 rsync -n -avr -u "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/" 2>&1 | tee "$rsync_list_file"
@@ -221,7 +221,7 @@ doUpdate() {
                 mkdir -p "$tempdir"
                 rsync -T "$tempdir" -avr -u --files-from="$rsync_list_file" "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/"  2>&1 | tee -a "$rsync_output_file"
                 rmdir --ignore-fail-on-non-empty "$tempdir"
-                date +%s%n%Y%m%d-%H%M%S > "$updated_file"
+                date +%s%n%Y%m%d-%H%M%S -d '@'$updated > "$updated_file"
                 break
             done
         fi
@@ -257,7 +257,7 @@ doTest() {
 }
 
 doStatus() {
-    command="${bin} -q -e modify,create,delete,move -m -r --format ${format} ${object_watched}"
+    command="${bin} -q -e modify,create,delete,move -m -r --timefmt %Y%m%d-%H%M%S --format ${format} ${object_watched}"
     PIDS=()
     while read -r _pid; do
         [ -n "$_pid" ] && PIDS+=("$_pid")
@@ -299,7 +299,7 @@ touch "$line_file"
 touch "$log_file"
 touch "$queue_watcher"
 chmod a+x "$queue_watcher"
-ln -sf "$log_file" "/var/log/sync-directory-${cluster_name}.log"
+[[ -w /var/log ]] && ln -sf "$log_file" "/var/log/sync-directory-${cluster_name}.log"
 
 # ------------------------------------------------------------------------------
 # Begin Bash Script.
@@ -816,14 +816,14 @@ EOF
 
 IFS=''
 echo "[directory] ("$(date +%Y-%m-%d\ %H:%M:%S)") Start watching." >> "$log_file"
-inotifywait -q -e modify,create,delete,move -m -r --format "$format" "$object_watched" | while read -r LINE
+inotifywait -q -e modify,create,delete,move -m -r --timefmt %Y%m%d-%H%M%S --format "$format" "$object_watched" | while read -r LINE
 do
     # echo "[debug] LINE: ${LINE}" >> "$log_file"
     # Posisi paling kanan menyebabkan terdapat tambahan karakter \r (CR)
     [ -n "$ISCYGWIN" ] && LINE=$(sed 's/\r$//' <<< "$LINE")
     EVENT=$(sed -E 's|<<(.*)>><<(.*)>><<(.*)>><<(.*)>>|\1|' <<< "$LINE")
     DIR=$(sed -E 's|<<(.*)>><<(.*)>><<(.*)>><<(.*)>>|\2|' <<< "$LINE")
-    [ -n "$ISCYGWIN" ] && DIR=$(cygpath "$DIR")
+    [ -n "$ISCYGWIN" ] && DIR=$(cygpath "$DIR") || DIR=${DIR%/}
     FILE=$(sed -E 's|<<(.*)>><<(.*)>><<(.*)>><<(.*)>>|\3|' <<< "$LINE")
     TIME=$(sed -E 's|<<(.*)>><<(.*)>><<(.*)>><<(.*)>>|\4|' <<< "$LINE")
     [ -n "$ISCYGWIN" ] && LINE="<<${EVENT}>><<${DIR}>><<${FILE}>><<${TIME}>>"
