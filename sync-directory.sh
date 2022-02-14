@@ -635,6 +635,12 @@ parseLineContents() {
         sed -i "$LINE"'s|^.*$|'"~${_linecontent}"'|' "$queue_file"
         sed -i "$LINEBELOW"'s|^.*$|'"~${_linecontentbelow}"'|' "$queue_file"
         let LINE++;
+    elif [[ "$_event" == "MOVED_TO" && "$_state" == "(isfileisnotdir)" ]];then
+        # Contoh kasus:
+        # mv ini.txt -t /dir (file ini.txt belum ada sebelumnya didalam direktori /dir)
+        ACTION='ssh_rsync'
+        ARGUMENT1="$_path"
+        sed -i "$LINE"'s|^.*$|'"+${_linecontent}"'|' "$queue_file"
     else
         # ignore else format line.
         ACTION='ignore'
