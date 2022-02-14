@@ -121,7 +121,7 @@ getPid() {
 object_watched="$mydirectory"
 [ -n "$ISCYGWIN" ] && object_watched=$(cygpath -w "$mydirectory")
 bin=$(command -v inotifywait)
-[ -n "$ISCYGWIN" ] && bin=$(cygpath -w "$bin")
+[ -n "$ISCYGWIN" ] && bin=$(cygpath -w "$bin") || bin=inotifywait
 format='<<%e>><<%w>><<%f>><<%T>>'
 
 # Kill existing before.
