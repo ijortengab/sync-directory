@@ -482,6 +482,21 @@ parseLineContents() {
         sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
         sed -i "$LINEBELOW"'s|^.*$|'"=${_linecontentbelow}"'|' "$queue_file"
         let LINE++;
+        # Cek lagi dibawahnya.
+        stop=
+        until [[ -n "$stop" ]]; do
+            # Restart:
+            populateVariables up
+            if [[ "$_event" == "MODIFY" && "$_state" == "(isfileisnotdir)" && "$_eventbelow" == "MODIFY" && "$_statebelow" == "(isfileisnotdir)" && "$_path" == "$_pathbelow" ]];then
+                # Coret dibawahnya.
+                sed -i "$LINEBELOW"'s|^.*$|'"=${_linecontentbelow}"'|' "$queue_file"
+                let LINE++;
+            else
+                # sed -i "$LINE"'s|^.*$|'"%${_linecontent}"'|' "$queue_file"
+                # let LINE--;
+                stop=1
+            fi
+        done
     elif [[ "$_event" == "DELETE" && "$_state" == "(isnotfileisnotdir)" && "$_eventbelow" == "CREATE,ISDIR" && "$_statebelow" == "(isnotfileisdir)" && $(basename "$_path") == $(basename "$_pathbelow") ]];then
         # Contoh kasus:
         # mv ini.d itu.d (directory itu.d sudah ada sebelumnya)
