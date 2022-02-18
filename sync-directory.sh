@@ -152,11 +152,11 @@ pullFrom() {
     if [[ "${#exclude[@]}" == 0 ]];then
         tempdir="${mydirectory}/.tmp.sync-directory"
         mkdir -p "$tempdir"
-        rsync -T "$tempdir" -avr -u "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/" 2>&1 | tee -a "$rsync_output_file"
+        rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr -u "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/" 2>&1 | tee -a "$rsync_output_file"
         rmdir --ignore-fail-on-non-empty "$tempdir"
     else
         while true; do
-            rsync -n -avr -u "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/" 2>&1 | tee "$rsync_list_file"
+            rsync -e "ssh -o ConnectTimeout=2" -n -s -avr -u "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/" 2>&1 | tee "$rsync_list_file"
             _lines=$(wc -l < "$rsync_list_file")
             if [[ $_lines -le 4 ]];then
                 break
@@ -181,7 +181,7 @@ pullFrom() {
             fi
             tempdir="${mydirectory}/.tmp.sync-directory"
             mkdir -p "$tempdir"
-            rsync -T "$tempdir" -avr -u --files-from="$rsync_list_file" "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/"  2>&1 | tee -a "$rsync_output_file"
+            rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr -u --files-from="$rsync_list_file" "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/"  2>&1 | tee -a "$rsync_output_file"
             rmdir --ignore-fail-on-non-empty "$tempdir"
             break
         done
@@ -409,7 +409,7 @@ parseLineContents() {
         ARGUMENT1="$_path"
         sed -i "$LINE"'s|^.*$|'"=${_linecontent}"'|' "$queue_file"
     elif [[ "$_event" == "CREATE" && "$_state" == "(isnotfileisnotdir)" ]];then
-        sleep 2
+        [ -n "$ISCYGWIN" ] && sleep 2
         # Contoh kasus: nge-save file office .docx, .xlsx.
         # Test dulu jika terjadi saving file office.
         recognize=
