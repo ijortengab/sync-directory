@@ -473,6 +473,11 @@ parseLineContents() {
                 let LINE++;
             done
             let LINE--;
+        else
+            # ignore else format line.
+            ACTION='ignore'
+            ARGUMENT1="$_linecontent"
+            sed -i "$LINE"'s|^.*$|'"?${_linecontent}"'|' "$queue_file"
         fi
     elif [[ "$_event" == "MODIFY" && "$_state" == "(isfileisnotdir)" && "$_eventbelow" == "MODIFY" && "$_statebelow" == "(isfileisnotdir)" && "$_path" == "$_pathbelow" ]];then
         # Contoh kasus:
