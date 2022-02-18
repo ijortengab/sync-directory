@@ -623,6 +623,10 @@ parseLineContents() {
                 sed -i "$LINE"'s|^.*$|'"-${_linecontent}"'|' "$queue_file"
             done
         fi
+    elif [[ "$_event" == "DELETE,ISDIR" && "$_state" == "(isnotfileisnotdir)" ]];then
+        ACTION='ssh_rmdir'
+        ARGUMENT1="$_path"
+        sed -i "$LINE"'s|^.*$|'"-${_linecontent}"'|' "$queue_file"
     elif [[ "$_event" == "MODIFY" && "$_state" == "(isfileisnotdir)" ]];then
         # Contoh kasus:
         # echo 'anu' >> a.txt (file sudah ada sebelumnya)
