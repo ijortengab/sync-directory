@@ -187,7 +187,7 @@ pullFrom() {
     fi
 }
 
-doUpdate() {
+doUpdateLatest() {
     local updated updated_host hostname _updated updated_host_file
     while IFS= read -r hostname; do
         updated_host_file="${instance_dir}/_updated_${hostname}.txt"
@@ -234,7 +234,7 @@ doUpdate() {
     }
 }
 
-doPull() {
+doUpdate() {
     local updated updated_host hostname _updated updated_host_file tempdir
     local _lines tempdir
     echo "Pull update from all host."
@@ -300,17 +300,17 @@ case "$1" in
         ;;
     start)
         doStop
-        doUpdate
+        doUpdateLatest
         ;;
     restart)
         doStop
         ;;
-    pull)
-        doPull
+    update-latest)
+        doUpdateLatest
         exit
         ;;
     *)
-        echo Command available: test, start, status, stop, update, restart, pull. >&2
+        echo Command available: test, start, status, stop, update, restart, update-latest. >&2
         exit 1
 esac
 
