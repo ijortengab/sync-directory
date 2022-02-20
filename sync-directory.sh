@@ -198,12 +198,12 @@ doUpdateLatest() {
     done <<< "$list_other"
     local n=5
     until [[ $n == 0 ]]; do
-        printf "\r\033[K"
-        echo -n Waiting $n...
+        printf "\r\033[K"  >&2
+        echo -n Waiting $n...  >&2
         let n--
         sleep 1
     done
-    printf "\r\033[K"
+    printf "\r\033[K" >&2
     updated=
     [[ -f "$updated_file" && -s "$updated_file" ]] && {
         updated=$(head -n 1 "$updated_file")
@@ -286,6 +286,46 @@ doStatus() {
     }
 }
 
+getFile() {
+    [ -n "$1" ] || { echo "Argument dibutuhkan.">&2; exit 1; }
+    local path="$1" fullpath dirpath hostname found=0
+    tempdir="${mydirectory}/.tmp.sync-directory"
+    mkdir -p "$tempdir"
+    if [ "${path:0:1}" = "/" ];then
+        # Absolute path.
+        fullpath="$path"
+        [ -f "$fullpath" ] && { echo "Cancelled. File existing."; exit 1; }
+        dirpath=$(dirname "$fullpath")
+        mkdir -p "$dirpath"
+        while IFS= read -r hostname; do
+            screen -d -m rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr --ignore-existing "${hostname}:${fullpath}" "${fullpath}"
+        done <<< "$list_other"
+    else
+        # Relative path.
+        fullpath="${mydirectory}/${path}"
+        [ -f "$fullpath" ] && { echo "Cancelled. File existing."; exit 1; }
+        dirpath=$(dirname "$fullpath")
+        mkdir -p "$dirpath"
+        while IFS= read -r hostname; do
+            screen -d -m rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr --ignore-existing "${hostname}:${DIRECTORIES[$hostname]}/${path}" "${fullpath}"
+        done <<< "$list_other"
+    fi
+    local n=3
+    until [[ $n == 0 ]]; do
+        printf "\r\033[K" >&2
+        echo -n Waiting $n...  >&2
+        if [ -f "$fullpath" ];then
+            found=1
+            break
+        fi
+        let n--
+        sleep 1
+    done
+    printf "\r\033[K"  >&2
+    [[ $found == 0 ]] && { echo "File still not found."; exit 1; }
+    echo "File pulled successfully.";
+}
+
 case "$1" in
     status) doStatus; exit;;
     test) doTest; exit;;
@@ -309,8 +349,12 @@ case "$1" in
         doUpdateLatest
         exit
         ;;
+    get-file)
+        getFile "$2"
+        exit
+        ;;
     *)
-        echo Command available: test, start, status, stop, update, restart, update-latest. >&2
+        echo Command available: test, start, status, stop, update-latest, update, restart, get-file. >&2
         exit 1
 esac
 
