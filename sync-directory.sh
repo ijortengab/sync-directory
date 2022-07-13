@@ -6,7 +6,6 @@
 # Dependencies.
 command -v "ssh" >/dev/null || { echo "ssh command not found."; exit 1; }
 command -v "rsync" >/dev/null || { echo "rsync command not found."; exit 1; }
-command -v "screen" >/dev/null || { echo "screen command not found."; exit 1; }
 command -v "inotifywait" >/dev/null || { echo "inotifywait command not found."; exit 1; }
 
 # Parse Options.
@@ -96,6 +95,11 @@ updated_file="${instance_dir}/_updated.txt"
 rsync_output_file="${instance_dir}/_rsync_output.txt"
 rsync_list_file="${instance_dir}/_rsync_list.txt"
 queue_watcher="${instance_dir}/_queue_watcher.sh"
+action_rsync_push="${instance_dir}/_action_rsync_push.sh"
+action_remove_force="${instance_dir}/_action_remove_force.sh"
+action_rename_file="${instance_dir}/_action_rename_file.sh"
+action_rename_dir="${instance_dir}/_action_rename_dir.sh"
+action_make_dir="${instance_dir}/_action_make_dir.sh"
 
 # Get pid, return multi line.
 getPid() {
@@ -364,6 +368,17 @@ touch "$line_file"
 touch "$log_file"
 touch "$queue_watcher"
 chmod a+x "$queue_watcher"
+touch "$action_rsync_push"
+chmod a+x "$action_rsync_push"
+touch "$action_remove_force"
+chmod a+x "$action_remove_force"
+touch "$action_rename_file"
+chmod a+x "$action_rename_file"
+touch "$action_rename_dir"
+chmod a+x "$action_rename_dir"
+touch "$action_make_dir"
+chmod a+x "$action_make_dir"
+
 [[ -w /var/log ]] && ln -sf "$log_file" "/var/log/sync-directory-${cluster_name}.log"
 
 # ------------------------------------------------------------------------------
@@ -374,6 +389,12 @@ cluster_name="$1"; myname="$2"; cluster_file="$3"
 instance_dir="/dev/shm/${cluster_name}"; queue_file="${instance_dir}/_queue.txt"
 line_file="${instance_dir}/_line.txt"; log_file="${instance_dir}/_log.txt"
 command_file="${instance_dir}/_command.txt"; updated_file="${instance_dir}/_updated.txt"
+action_rsync_push="${instance_dir}/_action_rsync_push.sh"
+action_remove_force="${instance_dir}/_action_remove_force.sh"
+action_rename_file="${instance_dir}/_action_rename_file.sh"
+action_rename_dir="${instance_dir}/_action_rename_dir.sh"
+action_make_dir="${instance_dir}/_action_make_dir.sh"
+
 # List action result:
 #1 ssh_rsync
 #2 ssh_rm
@@ -762,17 +783,6 @@ doIt() {
     relPath1="$2"
     relPath2="$3"
     while IFS= read -r hostname; do
-        tempdir="${DIRECTORIES[$hostname]}/.tmp.sync-directory"
-        fullpath1="${DIRECTORIES[$hostname]}/${relPath1}"
-        dirpath1=$(dirname "$fullpath1")
-        basename1=$(basename "$fullpath1")
-        temppath1="${dirpath1}/.${basename1}.ignore-this"
-        [ -n "$relPath2" ] && {
-            fullpath2="${DIRECTORIES[$hostname]}/${relPath2}"
-            dirpath2=$(dirname "$fullpath2")
-            basename2=$(basename "$fullpath2")
-            temppath2="${dirpath2}/.${basename2}.ignore-this"
-        }
         # echo "  [debug] \$hostname ${hostname}" >> "$log_file"
         # echo "  [debug] \$fullpath1 ${fullpath1}" >> "$log_file"
         # echo "  [debug] \$dirpath1 ${dirpath1}" >> "$log_file"
@@ -785,116 +795,33 @@ doIt() {
         case "$style" in
             ssh_rsync|ssh_rsync_*) #1
                 cat <<EOL >> "$command_file"
-ssh "$hostname" '
-    mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
-    mkdir -p "'"$tempdir"'"; rsync -T "'"$tempdir"'" -s -avr "'"${myname}:${mydirectory}/${relPath1}"'" "'"$fullpath1"'"
-    sleep 1
-    rm -rf "'"$temppath1"'"
-    [ -d "'"$tempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$tempdir"'"
-    '
+"$action_rsync_push" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
 EOL
-                screen -d -m \
-ssh "$hostname" '
-    mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
-    mkdir -p "'"$tempdir"'"; rsync -T "'"$tempdir"'" -s -avr "'"${myname}:${mydirectory}/${relPath1}"'" "'"$fullpath1"'"
-    sleep 1
-    rm -rf "'"$temppath1"'"
-    [ -d "'"$tempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$tempdir"'"
-    '
+                "$action_rsync_push" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
                 ;;
             ssh_rm|ssh_rmdir) #2
-                # Something bisa file atau direktori.
-                # Gunakan sleep untuk mengerem command remove file temp.
                 cat <<EOL >> "$command_file"
-ssh "$hostname" '
-    touch "'"$temppath1"'"
-    rm -rf "'"$fullpath1"'";
-    sleep 1;
-    rm -rf "'"$temppath1"'"
-    '
+"$action_remove_force" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
 EOL
-                screen -d -m \
-ssh "$hostname" '
-    touch "'"$temppath1"'"
-    rm -rf "'"$fullpath1"'";
-    sleep 1;
-    rm -rf "'"$temppath1"'"
-    '
+                "$action_remove_force" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
                 ;;
             ssh_rename_file|ssh_mv_file) #3, #6
                 cat <<EOL >> "$command_file"
-ssh "$hostname" '
-    if [ -f "'"$fullpath1"'" ];then
-        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
-        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
-        mv "'"$fullpath1"'" "'"$fullpath2"'"
-    fi
-    if [ ! -f "'"$fullpath2"'" ];then
-        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
-        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
-        mkdir -p "'"$tempdir"'"; rsync -T "'"$tempdir"'" -s -avr "'"${myname}:${mydirectory}/${relPath2}"'" "'"$fullpath2"'"
-    fi
-    sleep 1
-    rm -rf "'"$temppath1"'"
-    rm -rf "'"$temppath2"'"
-    [ -d "'"$tempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$tempdir"'"
-    '
+"$action_rename_file" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
 EOL
-                screen -d -m \
-ssh "$hostname" '
-    if [ -f "'"$fullpath1"'" ];then
-        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
-        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
-        mv "'"$fullpath1"'" "'"$fullpath2"'"
-    fi
-    if [ ! -f "'"$fullpath2"'" ];then
-        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
-        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
-        mkdir -p "'"$tempdir"'"; rsync -T "'"$tempdir"'" -s -avr "'"${myname}:${mydirectory}/${relPath2}"'" "'"$fullpath2"'"
-    fi
-    sleep 1
-    rm -rf "'"$temppath1"'"
-    rm -rf "'"$temppath2"'"
-    [ -d "'"$tempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$tempdir"'"
-    '
+                "$action_rename_file" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
                 ;;
             ssh_rename_dir|ssh_mv_dir) #4, #7
                 cat <<EOL >> "$command_file"
-ssh "$hostname" '
-    if [ -d "'"$fullpath1"'" ];then
-        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
-        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
-        mv "'"$fullpath1"'" "'"$fullpath2"'"
-    fi
-    sleep 1
-    rm -rf "'"$temppath1"'"
-    rm -rf "'"$temppath2"'";
-    '
+"$action_rename_dir" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
 EOL
-                screen -d -m \
-ssh "$hostname" '
-    if [ -d "'"$fullpath1"'" ];then
-        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
-        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
-        mv "'"$fullpath1"'" "'"$fullpath2"'"
-    fi
-    sleep 1
-    rm -rf "'"$temppath1"'"
-    rm -rf "'"$temppath2"'";
-    '
+                "$action_rename_dir" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
                 ;;
             ssh_mkdir|ssh_mkdir_parents) #5
-                # mkdir terlalu rumit dan njelimit.
-                # jadi kita biarkan terjadi efek berantai.
                 cat <<EOL >> "$command_file"
-ssh "$hostname" '
-    mkdir -p "'"$fullpath1"'";
-    '
+"$action_make_dir" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
 EOL
-                screen -d -m \
-ssh "$hostname" '
-    mkdir -p "'"$fullpath1"'";
-    '
+                "$action_make_dir" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
                 ;;
         esac
     done <<< "$list_other"
@@ -944,6 +871,132 @@ while inotifywait -q -e modify "$object_watched_2"; do
     # Dump current LINE for next trigger
     echo "$LINE" > "$line_file"
 done
+EOF
+cat <<'EOF' > "$action_rsync_push"
+#!/bin/bash
+mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5"tempdir="${DIRECTORIES[$hostname]}/.tmp.sync-directory"
+fullpath1="${hostnamedirectory}/${relPath1}"
+dirpath1=$(dirname "$fullpath1")
+basename1=$(basename "$fullpath1")
+temppath1="${dirpath1}/.${basename1}.ignore-this"
+[ -n "$relPath2" ] && {
+    fullpath2="${hostnamedirectory}/${relPath2}"
+    dirpath2=$(dirname "$fullpath2")
+    basename2=$(basename "$fullpath2")
+    temppath2="${dirpath2}/.${basename2}.ignore-this"
+}
+ssh "$hostname" '
+    mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
+    mkdir -p "'"$tempdir"'";
+    '
+rsync -T "$tempdir" -s -avr "${mydirectory}/${relPath1}" "${hostname}:$fullpath1"
+ssh "$hostname" '
+    sleep 1
+    rm -rf "'"$temppath1"'"
+    [ -d "'"$tempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$tempdir"'"
+    '
+EOF
+cat <<'EOF' > "$action_remove_force"
+#!/bin/bash
+# Something bisa file atau direktori.
+# Gunakan sleep untuk mengerem command remove file temp.
+mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5"
+fullpath1="${hostnamedirectory}/${relPath1}"
+dirpath1=$(dirname "$fullpath1")
+basename1=$(basename "$fullpath1")
+temppath1="${dirpath1}/.${basename1}.ignore-this"
+[ -n "$relPath2" ] && {
+    fullpath2="${hostnamedirectory}/${relPath2}"
+    dirpath2=$(dirname "$fullpath2")
+    basename2=$(basename "$fullpath2")
+    temppath2="${dirpath2}/.${basename2}.ignore-this"
+}
+ssh "$hostname" '
+    touch "'"$temppath1"'"
+    rm -rf "'"$fullpath1"'";
+    sleep 1;
+    rm -rf "'"$temppath1"'"
+    '
+EOF
+cat <<'EOF' > "$action_rename_file"
+#!/bin/bash
+mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5"
+fullpath1="${hostnamedirectory}/${relPath1}"
+dirpath1=$(dirname "$fullpath1")
+basename1=$(basename "$fullpath1")
+temppath1="${dirpath1}/.${basename1}.ignore-this"
+[ -n "$relPath2" ] && {
+    fullpath2="${hostnamedirectory}/${relPath2}"
+    dirpath2=$(dirname "$fullpath2")
+    basename2=$(basename "$fullpath2")
+    temppath2="${dirpath2}/.${basename2}.ignore-this"
+}
+ssh "$hostname" '
+    if [ -f "'"$fullpath1"'" ];then
+        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'";
+        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'";
+        mv "'"$fullpath1"'" "'"$fullpath2"'";
+    fi
+    '
+_buffer=$(ssh "$hostname" '
+    if [ ! -f "'"$fullpath2"'" ];then
+        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'";
+        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'";
+        mkdir -p "'"$tempdir"'";
+        echo 0;
+    fi
+    '
+)
+[[ $_buffer == 0 ]] && rsync -T "$tempdir" -s -avr "${mydirectory}/${relPath2}" "${hostname}:$fullpath2"
+ssh "$hostname" '
+    sleep 1
+    rm -rf "'"$temppath1"'"
+    rm -rf "'"$temppath2"'"
+    [ -d "'"$tempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$tempdir"'"
+    '
+EOF
+cat <<'EOF' > "$action_rename_dir"
+#!/bin/bash
+mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5"
+fullpath1="${hostnamedirectory}/${relPath1}"
+dirpath1=$(dirname "$fullpath1")
+basename1=$(basename "$fullpath1")
+temppath1="${dirpath1}/.${basename1}.ignore-this"
+[ -n "$relPath2" ] && {
+    fullpath2="${hostnamedirectory}/${relPath2}"
+    dirpath2=$(dirname "$fullpath2")
+    basename2=$(basename "$fullpath2")
+    temppath2="${dirpath2}/.${basename2}.ignore-this"
+}
+ssh "$hostname" '
+    if [ -d "'"$fullpath1"'" ];then
+        mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
+        mkdir -p "'"$dirpath2"'"; touch "'"$temppath2"'"
+        mv "'"$fullpath1"'" "'"$fullpath2"'"
+    fi
+    sleep 1
+    rm -rf "'"$temppath1"'"
+    rm -rf "'"$temppath2"'";
+    '
+EOF
+cat <<'EOF' > "$action_make_dir"
+#!/bin/bash
+# mkdir terlalu rumit dan njelimit.
+# jadi kita biarkan terjadi efek berantai.
+mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5"
+fullpath1="${hostnamedirectory}/${relPath1}"
+dirpath1=$(dirname "$fullpath1")
+basename1=$(basename "$fullpath1")
+temppath1="${dirpath1}/.${basename1}.ignore-this"
+[ -n "$relPath2" ] && {
+    fullpath2="${hostnamedirectory}/${relPath2}"
+    dirpath2=$(dirname "$fullpath2")
+    basename2=$(basename "$fullpath2")
+    temppath2="${dirpath2}/.${basename2}.ignore-this"
+}
+ssh "$hostname" '
+    mkdir -p "'"$fullpath1"'";
+    '
 EOF
 # End Bash Script.
 # ------------------------------------------------------------------------------
