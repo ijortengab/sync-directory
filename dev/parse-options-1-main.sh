@@ -15,8 +15,10 @@ VALUE=(
     '--cluster-name|-c'
     '--myname|-n'
     '--cluster-file|-f'
+    --remote-dir-file
 )
 MULTIVALUE=(
     '--exclude|-e'
+    '--remote-dir|-r'
 )
 EOF
