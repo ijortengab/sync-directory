@@ -836,7 +836,8 @@ done
 EOF
 cat <<'EOF' > "$action_rsync_push"
 #!/bin/bash
-mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5"tempdir="${DIRECTORIES[$hostname]}/.tmp.sync-directory"
+mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5";
+tempdir="${hostnamedirectory}/.tmp.sync-directory"
 fullpath1="${hostnamedirectory}/${relPath1}"
 dirpath1=$(dirname "$fullpath1")
 basename1=$(basename "$fullpath1")
@@ -863,6 +864,7 @@ cat <<'EOF' > "$action_remove_force"
 # Something bisa file atau direktori.
 # Gunakan sleep untuk mengerem command remove file temp.
 mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5"
+tempdir="${hostnamedirectory}/.tmp.sync-directory"
 fullpath1="${hostnamedirectory}/${relPath1}"
 dirpath1=$(dirname "$fullpath1")
 basename1=$(basename "$fullpath1")
@@ -883,6 +885,7 @@ EOF
 cat <<'EOF' > "$action_rename_file"
 #!/bin/bash
 mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5"
+tempdir="${hostnamedirectory}/.tmp.sync-directory"
 fullpath1="${hostnamedirectory}/${relPath1}"
 dirpath1=$(dirname "$fullpath1")
 basename1=$(basename "$fullpath1")
@@ -920,6 +923,7 @@ EOF
 cat <<'EOF' > "$action_rename_dir"
 #!/bin/bash
 mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5"
+tempdir="${hostnamedirectory}/.tmp.sync-directory"
 fullpath1="${hostnamedirectory}/${relPath1}"
 dirpath1=$(dirname "$fullpath1")
 basename1=$(basename "$fullpath1")
@@ -946,6 +950,7 @@ cat <<'EOF' > "$action_make_dir"
 # mkdir terlalu rumit dan njelimit.
 # jadi kita biarkan terjadi efek berantai.
 mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5"
+tempdir="${hostnamedirectory}/.tmp.sync-directory"
 fullpath1="${hostnamedirectory}/${relPath1}"
 dirpath1=$(dirname "$fullpath1")
 basename1=$(basename "$fullpath1")
