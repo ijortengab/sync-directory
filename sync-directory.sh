@@ -197,9 +197,9 @@ doUpdateLatest() {
     while IFS= read -r hostname; do
         updated_host_file="${instance_dir}/_updated_${hostname}.txt"
         rm -rf "$updated_host_file"
-        screen -d -m ssh "$hostname" '
+        ssh "$hostname" '
             head -n1 "'"$updated_file"'" | ssh "'"$myname"'" "cat > "'"$updated_host_file"'""
-            '
+            ' &
     done <<< "$list_other"
     local n=5
     until [[ $n == 0 ]]; do
@@ -303,7 +303,7 @@ getFile() {
         dirpath=$(dirname "$fullpath")
         mkdir -p "$dirpath"
         while IFS= read -r hostname; do
-            screen -d -m rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr --ignore-existing "${hostname}:${fullpath}" "${fullpath}"
+            rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr --ignore-existing "${hostname}:${fullpath}" "${fullpath}" &
         done <<< "$list_other"
     else
         # Relative path.
@@ -312,7 +312,7 @@ getFile() {
         dirpath=$(dirname "$fullpath")
         mkdir -p "$dirpath"
         while IFS= read -r hostname; do
-            screen -d -m rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr --ignore-existing "${hostname}:${DIRECTORIES[$hostname]}/${path}" "${fullpath}"
+            rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr --ignore-existing "${hostname}:${DIRECTORIES[$hostname]}/${path}" "${fullpath}" &
         done <<< "$list_other"
     fi
     local n=3
