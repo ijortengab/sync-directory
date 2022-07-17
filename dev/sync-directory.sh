@@ -9,47 +9,8 @@ command -v "rsync" >/dev/null || { echo "rsync command not found."; exit 1; }
 command -v "inotifywait" >/dev/null || { echo "inotifywait command not found."; exit 1; }
 
 # Parse Options.
-_new_arguments=()
-
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --cluster-file=*|-f=*) cluster_file="${1#*=}"; shift ;;
-        --cluster-file|-f) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then cluster_file="$2"; shift; fi; shift ;;
-        --cluster-name=*|-c=*) cluster_name="${1#*=}"; shift ;;
-        --cluster-name|-c) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then cluster_name="$2"; shift; fi; shift ;;
-        --exclude=*|-e=*) exclude+=("${1#*=}"); shift ;;
-        --exclude|-e) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then exclude+=("$2"); shift; fi; shift ;;
-        --myname=*|-n=*) myname="${1#*=}"; shift ;;
-        --myname|-n) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then myname="$2"; shift; fi; shift ;;
-        --[^-]*) shift ;;
-        *) _new_arguments+=("$1"); shift ;;
-    esac
-done
-
-set -- "${_new_arguments[@]}"
-
-_new_arguments=()
-
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        -[^-]*) OPTIND=1
-            while getopts ":f:c:e:n:" opt; do
-                case $opt in
-                    f) cluster_file="$OPTARG" ;;
-                    c) cluster_name="$OPTARG" ;;
-                    e) exclude+=("$OPTARG") ;;
-                    n) myname="$OPTARG" ;;
-                esac
-            done
-            shift "$((OPTIND-1))"
-            ;;
-        *) _new_arguments+=("$1"); shift ;;
-    esac
-done
-
-set -- "${_new_arguments[@]}"
-
-unset _new_arguments
+source $(dirname $0)/parse-1-main.txt
+source $(dirname $0)/debug-1-main.txt
 
 # Verification.
 [ -n "$cluster_name" ] || { echo "Argument --cluster-name (-c) required.">&2; exit 1; }
