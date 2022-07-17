@@ -1,13 +1,10 @@
 #!/bin/bash
 
-# Back to default branch (master).
-git switch -
-
-# Back to parent directory.
-_file=$(realpath "$0")
-_dir=$(dirname "$_file")
-parent_dir=$(realpath "$_dir"/../)
-cd "$parent_dir"
-
-# Copy file from devel branch.
-git restore --source=master sync-directory.sh
+if [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
+    if [[ "$0" =~ back\.sh$ ]];then
+        echo 'Cara penggunaan yang benar adalah `. back.sh`'
+    else
+        cd $PWD/../
+        git switch master
+    fi
+fi
