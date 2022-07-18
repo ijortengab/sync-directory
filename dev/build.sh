@@ -17,3 +17,6 @@ echo "${FILE2//source \$(dirname \$0)\/parse-1-main.txt/$FILE1}" > "$file"
 
 # Remove string
 sed -i '/source \$(dirname \$0)\/debug-1-main.txt/d' "$file"
+sed -e '/var-dump\.function\.sh/d' -e '/^VarDump/d' -e '/^# VarDump/d' -i "$file"
+
+git diff "$file"
