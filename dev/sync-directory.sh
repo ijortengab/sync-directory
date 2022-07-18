@@ -11,34 +11,51 @@ command -v "inotifywait" >/dev/null || { echo "inotifywait command not found."; 
 # Parse Options.
 source $(dirname $0)/parse-1-main.txt
 source $(dirname $0)/debug-1-main.txt
+source /home/ijortengab/github.com/ijortengab/bash/functions/var-dump.function.sh
 
 # Verification.
 [ -n "$cluster_name" ] || { echo "Argument --cluster-name (-c) required.">&2; exit 1; }
-[ -n "$cluster_file" ] || { echo "Argument --cluster-file (-f) required.">&2; exit 1; }
+[ -n "$remote_dir_file" ] || { echo "Argument --remote-dir-file (-f) required.">&2; exit 1; }
+[ -f "$remote_dir_file" ] || { echo "File ${remote_dir_file} not found.">&2; exit 1; }
 [ -n "$myname" ] || { echo "Argument --myname (-n) required.">&2; exit 1; }
 
-# Populate variables
-list_all=$(grep -o -P "^\[\K([^\[\]]+)" "$cluster_file")
+# Populate variable.
+# DIRECTORIES=  associative array
+# list_all= string with multilines, trim trailing line feed (\n)
+# list_other= string with multilines, trim trailing line feed (\n)
+# REMOTE_PATH= string with multilines, trim trailing line feed (\n)
+declare -A DIRECTORIES
+list_all=
 list_other=
-
-# Verification of myname and populate variable $list_other.
+REMOTE_PATH=
 found=
 while IFS= read -r line; do
-    [[ "$line" == "$myname" ]] && found=1 || list_other+="$line"$'\n'
-done <<< "$list_all"
+    # Skip comment line
+    if [[ $(grep -E '^[[:space:]]*#' <<< "$line") ]];then
+        continue
+    fi
+    _hostname=$(cut -d: -f1 <<< "$line")
+    line=$(sed 's/^'"$_hostname"'//' <<< "$line")
+    [[ "${line:0:1}" == ':' ]] && line="${line:1}"
+    _directory=${line}
+    if [[ ! "${_directory:0:1}" == '/' ]];then
+        echo "The directory is not absolute path: \`${_directory}\`.">&2;
+        echo "Host \`${_hostname}\` skipped.">&2;
+        continue
+    fi
+    grep -q "$_hostname" <<< "$list_all" || {
+        list_all+="$_hostname"$'\n'
+        REMOTE_PATH+="${_hostname}:${_directory%/}"$'\n'
+    }
+    grep -q "$_hostname" <<< "$list_other" || {
+        [[ "$_hostname" == "$myname" ]] || list_other+="$_hostname"$'\n'
+    }
+    VarDump _hostname myname
+    [[ "$_hostname" == "$myname" ]] && found=1
+    DIRECTORIES+=( ["$_hostname"]="${_directory%/}" )
+done < "$remote_dir_file"
 [ -n "$found" ] || { echo "My hostname '$myname' not found in '$cluster_file'.">&2; exit 1; }
 [ -n "$list_other" ] && list_other=${list_other%$'\n'} # trim trailing \n
-
-# @todo, pull node terupdate.
-
-# Populate variable associative array.
-declare -A DIRECTORIES
-found=
-while IFS= read -r hostname; do
-    _directory=$(sed -n '/^[ \t]*\['"$hostname"'\]/,/\[/s/^[ \t]*directory[ \t]*=[ \t]*//p' "$cluster_file")
-    [ -n "$_directory" ] && DIRECTORIES+=( ["$hostname"]="${_directory%/}" ) || found="$hostname"
-done <<< "$list_all"
-[ -n "$found" ] && { echo "Directory of '$found' not found in '$cluster_file'.">&2; exit 1; }
 
 ISCYGWIN=
 if [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
@@ -158,6 +175,7 @@ doUpdateLatest() {
     while IFS= read -r hostname; do
         updated_host_file="${instance_dir}/_updated_${hostname}.txt"
         rm -rf "$updated_host_file"
+		# @todo, ganti pake rsync
         ssh "$hostname" '
             head -n1 "'"$updated_file"'" | ssh "'"$myname"'" "cat > "'"$updated_host_file"'""
             ' &
@@ -347,7 +365,7 @@ chmod a+x "$action_make_dir"
 # Begin Bash Script.
 cat <<'EOF' > "$queue_watcher"
 #!/bin/bash
-cluster_name="$1"; myname="$2"; cluster_file="$3"
+cluster_name="$1"; myname="$2";
 instance_dir="/dev/shm/${cluster_name}"; queue_file="${instance_dir}/_queue.txt"
 line_file="${instance_dir}/_line.txt"; log_file="${instance_dir}/_log.txt"
 command_file="${instance_dir}/_command.txt"; updated_file="${instance_dir}/_updated.txt"
@@ -754,53 +772,61 @@ doIt() {
         # echo "  [debug] \$dirpath2 ${dirpath2}" >> "$log_file"
         # echo "  [debug] \$basename2 ${basename2}" >> "$log_file"
         # echo "  [debug] \$temppath2 ${temppath2}" >> "$log_file"
+        remote_dir=$(grep '^'"$hostname"':' <<< "$REMOTE_PATH" | sed -E 's|'"$hostname"':(.*)$|\1|')
         case "$style" in
             ssh_rsync|ssh_rsync_*) #1
                 cat <<EOL >> "$command_file"
-"$action_rsync_push" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
+"$action_rsync_push" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" "$relPath2" &
 EOL
-                "$action_rsync_push" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
+                "$action_rsync_push" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" "$relPath2" &
                 ;;
             ssh_rm|ssh_rmdir) #2
                 cat <<EOL >> "$command_file"
-"$action_remove_force" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
+"$action_remove_force" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" "$relPath2" &
 EOL
-                "$action_remove_force" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
+                "$action_remove_force" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" "$relPath2" &
                 ;;
             ssh_rename_file|ssh_mv_file) #3, #6
                 cat <<EOL >> "$command_file"
-"$action_rename_file" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
+"$action_rename_file" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" "$relPath2" &
 EOL
-                "$action_rename_file" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
+                "$action_rename_file" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" "$relPath2" &
                 ;;
             ssh_rename_dir|ssh_mv_dir) #4, #7
                 cat <<EOL >> "$command_file"
-"$action_rename_dir" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
+"$action_rename_dir" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" "$relPath2" &
 EOL
-                "$action_rename_dir" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
+                "$action_rename_dir" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" "$relPath2" &
                 ;;
             ssh_mkdir|ssh_mkdir_parents) #5
                 cat <<EOL >> "$command_file"
-"$action_make_dir" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
+"$action_make_dir" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" "$relPath2" &
 EOL
-                "$action_make_dir" "${mydirectory}" "${hostname}" "${DIRECTORIES[$hostname]}" "${relPath1}" "${relPath2}" &
+                "$action_make_dir" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" "$relPath2" &
                 ;;
         esac
     done <<< "$list_other"
 }
-declare -A DIRECTORIES; list_all=$(grep -o -P "^\[\K([^\[\]]+)" "$cluster_file"); list_other=
-while IFS= read -r line; do
-    [[ ! "$line" == "$myname" ]] && list_other+="$line"$'\n'
-done <<< "$list_all"
-[ -n "$list_other" ] && list_other=${list_other%$'\n'} # trim trailing \n
-while IFS= read -r h; do
-    _d=$(sed -n '/^[ \t]*\['"$h"'\]/,/\[/s/^[ \t]*directory[ \t]*=[ \t]*//p' "$cluster_file")
-    DIRECTORIES+=( ["$h"]="${_d%/}" )
-done <<< "$list_all"
-mydirectory="${DIRECTORIES[$myname]}"; object_watched_2="$queue_file";
+
+object_watched_2="$queue_file";
 if [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
     object_watched_2=$(cygpath -w "$queue_file");
 fi
+
+REMOTE_PATH=$(cat -)
+source /home/ijortengab/github.com/ijortengab/bash/functions/var-dump.function.sh
+VarDump REMOTE_PATH
+while IFS= read -r line; do
+    _hostname=$(cut -d: -f1 <<< "$line")
+    _directory=$(cut -d: -f2 <<< "$line")
+    [[ "$_hostname" == "$myname" ]] && mydirectory="$_directory" || list_other+="$_hostname"$'\n'
+done <<< "$REMOTE_PATH"
+[ -n "$list_other" ] && list_other=${list_other%$'\n'} # trim trailing \n
+
+# VarDump list_other
+VarDump mydirectory
+VarDump object_watched_2
+VarDump inotifywait
 while inotifywait -q -e modify "$object_watched_2"; do
     # Get current LINE.
     if [[ -s "$line_file" ]];then
@@ -968,7 +994,7 @@ EOF
 # End Bash Script.
 # ------------------------------------------------------------------------------
 
-"$queue_watcher" "$cluster_name" "$myname" "$cluster_file" &
+"$queue_watcher" "$cluster_name" "$myname" <<< "$REMOTE_PATH" &
 
 IFS=''
 echo "[directory] ("$(date +%Y-%m-%d\ %H:%M:%S)") Start watching." >> "$log_file"
