@@ -84,6 +84,15 @@ list_all=
 list_other=
 REMOTE_PATH=
 found=
+
+_remote_dir=$(<"$remote_dir_file")
+[[ "${#remote_dir[@]}" -gt 0 ]] && {
+    _remote_dir+=$'\n'
+    _implode=$(printf $'\n'"%s" "${remote_dir[@]}")
+    _implode=${_implode:1}
+    _remote_dir+="${_implode}"
+}
+
 while IFS= read -r line; do
     # Skip comment line
     if [[ $(grep -E '^[[:space:]]*#' <<< "$line") ]];then
@@ -108,7 +117,7 @@ while IFS= read -r line; do
     VarDump _hostname myname
     [[ "$_hostname" == "$myname" ]] && found=1
     DIRECTORIES+=( ["$_hostname"]="${_directory%/}" )
-done < "$remote_dir_file"
+done <<< "$_remote_dir"
 [ -n "$found" ] || { echo "My hostname '$myname' not found in '$cluster_file'.">&2; exit 1; }
 [ -n "$list_other" ] && list_other=${list_other%$'\n'} # trim trailing \n
 
