@@ -53,6 +53,13 @@ while [[ $# -gt 0 ]]; do
             done
             shift "$((OPTIND-1))"
             ;;
+        test|start|status|stop|update-latest|update|restart|get-file)
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    *) _new_arguments+=("$1"); shift ;;
+                esac
+            done
+            ;;
         *) _new_arguments+=("$1"); shift ;;
     esac
 done
