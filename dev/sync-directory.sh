@@ -43,7 +43,7 @@ VarDump _remote_dir
     _remote_dir+="${_implode}"
 }
 
-[ "${#_remote_dir[@]}" -eq 0 ]&& {
+[ -z "$_remote_dir" ] && {
     echo "Requires at least one remote directory [--remote-dir],[--remote-dir-file].">&2; exit 1;
 }
 VarDump _remote_dir
@@ -83,6 +83,7 @@ do
     }
 done
 
+VarDump REMOTE REMOTE_PATH REMOTE_PATH_ARRAY
 # Variable REMOTE dan REMOTE_PATH berisi informasi valid yang sudah filter.
 # Jika PATH tidak kosong, maka tambahkan trailing slash.
 # Option --directory, meng-override informasi directory pada --remote-dir atau
@@ -217,7 +218,7 @@ doUpdateLatest() {
         ssh "$hostname" '
             head -n1 "'"$updated_file"'" | ssh "'"$myname"'" "cat > "'"$updated_host_file"'""
             ' &
-    done <<< "$list_other"
+    done <<< "$REMOTE"
     local n=5
     until [[ $n == 0 ]]; do
         printf "\r\033[K"  >&2
@@ -249,7 +250,7 @@ doUpdateLatest() {
             updated_host="$hostname"
         }
         rm -rf "$updated_host_file"
-    done <<< "$list_other"
+    done <<< "$REMOTE"
     [ -n "$updated_host" ] && {
         pullFrom "$updated_host"
         date +%s%n%Y%m%d-%H%M%S -d '@'$updated > "$updated_file"
@@ -263,14 +264,14 @@ doUpdate() {
     echo "[directory] ("$(date +%Y-%m-%d\ %H:%M:%S)") Pull update from all host." >> "$log_file"
     while IFS= read -r updated_host; do
         pullFrom "$updated_host"
-    done <<< "$list_other"
+    done <<< "$REMOTE"
     date +%s%n%Y%m%d-%H%M%S > "$updated_file"
 }
 
 doTest() {
     local array_list_other
     # hostname tidak boleh mengandung karakter spasi/whitespace.
-    array_list_other=$(tr '\n' ' ' <<< "$list_other")
+    array_list_other=$(tr '\n' ' ' <<< "$REMOTE")
     for hostname in ${array_list_other[@]}; do
         echo -e '- '"\e[33m$hostname\e[0m"
         echo '  Test connect from '"$myname"' to host '"$hostname"'.'
@@ -321,7 +322,7 @@ getFile() {
         mkdir -p "$dirpath"
         while IFS= read -r hostname; do
             rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr --ignore-existing "${hostname}:${fullpath}" "${fullpath}" &
-        done <<< "$list_other"
+        done <<< "$REMOTE"
     else
         # Relative path.
         fullpath="${mydirectory}${path}"
@@ -330,7 +331,7 @@ getFile() {
         mkdir -p "$dirpath"
         while IFS= read -r hostname; do
             rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr --ignore-existing "${hostname}:${REMOTE_PATH_ARRAY[$hostname]}/${path}" "${fullpath}" &
-        done <<< "$list_other"
+        done <<< "$REMOTE"
     fi
     local n=3
     until [[ $n == 0 ]]; do
@@ -843,7 +844,7 @@ EOL
                 "$action_make_dir" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" "$relPath2" &
                 ;;
         esac
-    done <<< "$list_other"
+    done <<< "$REMOTE"
 }
 
 object_watched_2="$queue_file";
@@ -853,12 +854,14 @@ fi
 
 REMOTE_PATH=$(cat -)
 source /home/ijortengab/github.com/ijortengab/bash/functions/var-dump.function.sh
+VarDump REMOTE_PATH
 while IFS= read -r line; do
     _hostname=$(cut -d: -f1 <<< "$line")
     _directory=$(cut -d: -f2 <<< "$line")
-    list_other+="$_hostname"$'\n'
+    VarDump _hostname _directory
+    REMOTE+="$_hostname"$'\n'
 done <<< "$REMOTE_PATH"
-[ -n "$list_other" ] && list_other=${list_other%$'\n'} # trim trailing \n
+[ -n "$REMOTE" ] && REMOTE=${REMOTE%$'\n'} # trim trailing \n
 
 while inotifywait -q -e modify "$object_watched_2"; do
     # Get current LINE.
