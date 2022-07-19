@@ -13,8 +13,6 @@ _new_arguments=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --cluster-name=*|-c=*) cluster_name="${1#*=}"; shift ;;
-        --cluster-name|-c) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then cluster_name="$2"; shift; fi; shift ;;
         --exclude=*|-e=*) exclude+=("${1#*=}"); shift ;;
         --exclude|-e) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then exclude+=("$2"); shift; fi; shift ;;
         --myname=*|-n=*) myname="${1#*=}"; shift ;;
@@ -42,9 +40,8 @@ _new_arguments=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -[^-]*) OPTIND=1
-            while getopts ":c:e:n:r:f:" opt; do
+            while getopts ":e:n:r:f:" opt; do
                 case $opt in
-                    c) cluster_name="$OPTARG" ;;
                     e) exclude+=("$OPTARG") ;;
                     n) myname="$OPTARG" ;;
                     r) remote_dir+=("$OPTARG") ;;
@@ -69,7 +66,7 @@ set -- "${_new_arguments[@]}"
 unset _new_arguments
 
 # Verification.
-[ -n "$cluster_name" ] || { echo "Argument --cluster-name (-c) required.">&2; exit 1; }
+
 [ -n "$remote_dir_file" ] || { echo "Argument --remote-dir-file (-f) required.">&2; exit 1; }
 [ -f "$remote_dir_file" ] || { echo "File ${remote_dir_file} not found.">&2; exit 1; }
 [ -n "$myname" ] || { echo "Argument --myname (-n) required.">&2; exit 1; }
@@ -114,12 +111,14 @@ while IFS= read -r line; do
     grep -q "$_hostname" <<< "$list_other" || {
         [[ "$_hostname" == "$myname" ]] || list_other+="$_hostname"$'\n'
     }
-    VarDump _hostname myname
     [[ "$_hostname" == "$myname" ]] && found=1
     DIRECTORIES+=( ["$_hostname"]="${_directory%/}" )
 done <<< "$_remote_dir"
 [ -n "$found" ] || { echo "My hostname '$myname' not found in '$cluster_file'.">&2; exit 1; }
 [ -n "$list_other" ] && list_other=${list_other%$'\n'} # trim trailing \n
+
+[ -n "$1" ] || { echo "Argument <cluster-name> required.">&2; exit 1; }
+cluster_name="$1"; shift;
 
 ISCYGWIN=
 if [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
