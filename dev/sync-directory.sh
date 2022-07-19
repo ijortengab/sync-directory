@@ -14,7 +14,7 @@ source $(dirname $0)/debug-1-main.txt
 source /home/ijortengab/github.com/ijortengab/bash/functions/var-dump.function.sh
 
 # Verification.
-[ -n "$cluster_name" ] || { echo "Argument --cluster-name (-c) required.">&2; exit 1; }
+
 [ -n "$remote_dir_file" ] || { echo "Argument --remote-dir-file (-f) required.">&2; exit 1; }
 [ -f "$remote_dir_file" ] || { echo "File ${remote_dir_file} not found.">&2; exit 1; }
 [ -n "$myname" ] || { echo "Argument --myname (-n) required.">&2; exit 1; }
@@ -67,6 +67,11 @@ while IFS= read -r line; do
 done <<< "$_remote_dir"
 [ -n "$found" ] || { echo "My hostname '$myname' not found in '$cluster_file'.">&2; exit 1; }
 [ -n "$list_other" ] && list_other=${list_other%$'\n'} # trim trailing \n
+
+[ -n "$1" ] || { echo "Argument <cluster-name> required.">&2; exit 1; }
+cluster_name="$1"; shift;
+VarDump cluster_name
+source $(dirname $0)/debug-1-main.txt
 
 ISCYGWIN=
 if [[ $(uname | cut -c1-6) == "CYGWIN" ]];then

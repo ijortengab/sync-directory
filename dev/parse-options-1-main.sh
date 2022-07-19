@@ -23,7 +23,6 @@ OPERAND=(
     get-file
 )
 VALUE=(
-    '--cluster-name|-c'
     '--myname|-n'
     '--remote-dir-file|-f'
 )
