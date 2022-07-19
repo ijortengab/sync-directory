@@ -31,14 +31,17 @@ declare -A REMOTE_PATH_ARRAY
 }
 
 VarDump _remote_dir
-[[ "${#remote_dir[@]}" -gt 0 ]] && {
+[ "${#remote_dir[@]}" -gt 0 ] && {
     _remote_dir+=$'\n'
     _implode=$(printf $'\n'"%s" "${remote_dir[@]}")
     _implode=${_implode:1}
     _remote_dir+="${_implode}"
-} || { echo "Requires at least one remote directory [--remote-dir],[--remote-dir-file].">&2; exit 1; }
-VarDump _remote_dir
+}
 
+[ "${#_remote_dir[@]}" -eq 0 ]&& {
+    echo "Requires at least one remote directory [--remote-dir],[--remote-dir-file].">&2; exit 1;
+}
+VarDump _remote_dir
 # Filter yang duplicate. Kita gunakan value yang terakhir.
 while IFS= read -r line; do
     # Skip comment line.
@@ -52,7 +55,7 @@ while IFS= read -r line; do
     # Trailing slash, cegah duplikat.
     [ -n "$_directory" ] && _directory="${_directory%/}/"
     VarDump _hostname _directory
-    _remote_path_array+=( ["$_hostname"]="${_directory}" )
+    _remote_path_array+=( ["$_hostname"]="$_directory" )
 done <<< "$_remote_dir"
 #
 [ -n "$myname" ] && {
