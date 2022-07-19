@@ -9,8 +9,8 @@ parse-options.sh \
     --no-original-arguments \
     --without-end-options-double-dash \
     --with-end-options-specific-operand \
-    --output-file parse-1-main.txt \
-    --debug-file debug-1-main.txt \
+    --output-file parse-options-1-core.txt \
+    --debug-file parse-options-1-core-debug.txt \
     << EOF
 OPERAND=(
     test

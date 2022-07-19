@@ -15,8 +15,8 @@ cluster_name="$1"; shift;
 VarDump cluster_name
 
 # Parse Options.
-source $(dirname $0)/parse-1-main.txt
-source $(dirname $0)/debug-1-main.txt
+source $(dirname $0)/parse-options-1-core.txt
+source $(dirname $0)/parse-options-1-core-debug.txt
 
 # Populate variable.
 # _remote_dir= string with multilines, trim trailing line feed (\n)
