@@ -77,9 +77,10 @@ unset _new_arguments
 
 # Populate variable.
 # _remote_dir= string with multilines, trim trailing line feed (\n)
-# _remote_path_array=  associative array
+# _remote_path_array=  associative array, belum difilter oleh --ignore.
 # REMOTE= string with multilines, trim trailing line feed (\n)
 # REMOTE_PATH= string with multilines, trim trailing line feed (\n)
+# REMOTE_PATH_ARRAY=associative array, sudah difilter oleh --ignore.
 REMOTE=
 REMOTE_PATH=
 _remote_dir=
@@ -149,6 +150,57 @@ mydirectory=$(realpath "$mydirectory")
 # Trailing slash, cegah duplikat.
 mydirectory="${mydirectory%/}/"
 
+parseStartCommand() {
+    _new_arguments=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --exclude=*|-e=*) exclude="${1#*=}"; shift ;;
+            --exclude|-e) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then exclude="$2"; shift; fi; shift ;;
+            --pull=*) pull="${1#*=}"; shift ;;
+            --pull) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then pull="$2"; shift; fi; shift ;;
+            --pull-all) pull_all=1; shift ;;
+            --pull-latest) pull_latest=1; shift ;;
+            --[^-]*) shift ;;
+            *) _new_arguments+=("$1"); shift ;;
+        esac
+    done
+
+    set -- "${_new_arguments[@]}"
+
+    _new_arguments=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -[^-]*) OPTIND=1
+                while getopts ":e:" opt; do
+                    case $opt in
+                        e) exclude="$OPTARG" ;;
+                    esac
+                done
+                shift "$((OPTIND-1))"
+                ;;
+            *) _new_arguments+=("$1"); shift ;;
+        esac
+    done
+
+    set -- "${_new_arguments[@]}"
+
+    unset _new_arguments
+}
+# Process command.
+command="$1"; shift
+
+case "$command" in
+    test) ;;
+    start) parseStartCommand "$@";;
+    status) ;;
+    stop) ;;
+    update-latest) ;;
+    update) ;;
+    restart) ;;
+    get-file) ;;
+esac
 
 ISCYGWIN=
 if [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
@@ -200,6 +252,7 @@ format='<<%e>><<%w>><<%f>><<%T>>'
 
 # Kill existing before.
 doStop() {
+    local command
     PIDS=()
     command="${bin} -q -e modify ${object_watched_2}"
     while read -r _pid; do
@@ -349,6 +402,7 @@ doTest() {
 }
 
 doStatus() {
+    local command
     command="${bin} -q -e modify,create,delete,move -m -r --timefmt %Y%m%d-%H%M%S --format ${format} ${object_watched}"
     PIDS=()
     while read -r _pid; do
