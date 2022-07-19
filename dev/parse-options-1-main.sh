@@ -25,9 +25,11 @@ OPERAND=(
 VALUE=(
     '--myname|-n'
     '--remote-dir-file|-f'
+    '--directory|-d'
 )
 MULTIVALUE=(
     '--exclude|-e'
     '--remote-dir|-r'
+    '--ignore|-i'
 )
 EOF
