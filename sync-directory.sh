@@ -13,8 +13,12 @@ _new_arguments=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --directory=*|-d=*) directory="${1#*=}"; shift ;;
+        --directory|-d) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then directory="$2"; shift; fi; shift ;;
         --exclude=*|-e=*) exclude+=("${1#*=}"); shift ;;
         --exclude|-e) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then exclude+=("$2"); shift; fi; shift ;;
+        --ignore=*|-i=*) ignore+=("${1#*=}"); shift ;;
+        --ignore|-i) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then ignore+=("$2"); shift; fi; shift ;;
         --myname=*|-n=*) myname="${1#*=}"; shift ;;
         --myname|-n) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then myname="$2"; shift; fi; shift ;;
         --remote-dir=*|-r=*) remote_dir+=("${1#*=}"); shift ;;
@@ -40,9 +44,11 @@ _new_arguments=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -[^-]*) OPTIND=1
-            while getopts ":e:n:r:f:" opt; do
+            while getopts ":d:e:i:n:r:f:" opt; do
                 case $opt in
+                    d) directory="$OPTARG" ;;
                     e) exclude+=("$OPTARG") ;;
+                    i) ignore+=("$OPTARG") ;;
                     n) myname="$OPTARG" ;;
                     r) remote_dir+=("$OPTARG") ;;
                     f) remote_dir_file="$OPTARG" ;;
@@ -65,33 +71,33 @@ set -- "${_new_arguments[@]}"
 
 unset _new_arguments
 
-# Verification.
-
-[ -n "$remote_dir_file" ] || { echo "Argument --remote-dir-file (-f) required.">&2; exit 1; }
-[ -f "$remote_dir_file" ] || { echo "File ${remote_dir_file} not found.">&2; exit 1; }
-[ -n "$myname" ] || { echo "Argument --myname (-n) required.">&2; exit 1; }
-
 # Populate variable.
-# DIRECTORIES=  associative array
-# list_all= string with multilines, trim trailing line feed (\n)
-# list_other= string with multilines, trim trailing line feed (\n)
+# _remote_dir= string with multilines, trim trailing line feed (\n)
+# _remote_path_array=  associative array
+# REMOTE= string with multilines, trim trailing line feed (\n)
 # REMOTE_PATH= string with multilines, trim trailing line feed (\n)
-declare -A DIRECTORIES
-list_all=
-list_other=
+REMOTE=
 REMOTE_PATH=
-found=
+_remote_dir=
+_ignore=
+declare -A _remote_path_array
+declare -A REMOTE_PATH_ARRAY
 
-_remote_dir=$(<"$remote_dir_file")
+# Verification.
+[ -n "$remote_dir_file" ] && {
+    [ -f "$remote_dir_file" ] && _remote_dir=$(<"$remote_dir_file") || echo "File ${remote_dir_file} not found.">&2;
+}
+
 [[ "${#remote_dir[@]}" -gt 0 ]] && {
     _remote_dir+=$'\n'
     _implode=$(printf $'\n'"%s" "${remote_dir[@]}")
     _implode=${_implode:1}
     _remote_dir+="${_implode}"
-}
+} || { echo "Requires at least one remote directory [--remote-dir],[--remote-dir-file].">&2; exit 1; }
 
+# Filter yang duplicate. Kita gunakan value yang terakhir.
 while IFS= read -r line; do
-    # Skip comment line
+    # Skip comment line.
     if [[ $(grep -E '^[[:space:]]*#' <<< "$line") ]];then
         continue
     fi
@@ -99,23 +105,40 @@ while IFS= read -r line; do
     line=$(sed 's/^'"$_hostname"'//' <<< "$line")
     [[ "${line:0:1}" == ':' ]] && line="${line:1}"
     _directory=${line}
-    if [[ ! "${_directory:0:1}" == '/' ]];then
-        echo "The directory is not absolute path: \`${_directory}\`.">&2;
-        echo "Host \`${_hostname}\` skipped.">&2;
-        continue
-    fi
-    grep -q "$_hostname" <<< "$list_all" || {
-        list_all+="$_hostname"$'\n'
-        REMOTE_PATH+="${_hostname}:${_directory%/}"$'\n'
-    }
-    grep -q "$_hostname" <<< "$list_other" || {
-        [[ "$_hostname" == "$myname" ]] || list_other+="$_hostname"$'\n'
-    }
-    [[ "$_hostname" == "$myname" ]] && found=1
-    DIRECTORIES+=( ["$_hostname"]="${_directory%/}" )
+    # Trailing slash, cegah duplikat.
+    [ -n "$_directory" ] && _directory="${_directory%/}/"
+    _remote_path_array+=( ["$_hostname"]="${_directory}" )
 done <<< "$_remote_dir"
-[ -n "$found" ] || { echo "My hostname '$myname' not found in '$cluster_file'.">&2; exit 1; }
-[ -n "$list_other" ] && list_other=${list_other%$'\n'} # trim trailing \n
+#
+[ -n "$myname" ] && {
+    mydirectory=${_remote_path_array[$myname]}
+    # Tambahkan ke ignore.
+    ignore+=( "$myname" )
+}
+# Filter --ignore.
+[[ "${#ignore[@]}" -gt 0 ]] && {
+    _ignore=$(printf $'\n'"%s" "${ignore[@]}")
+    _ignore=${_ignore:1}
+}
+for i in "${!_remote_path_array[@]}"
+do
+    grep -q "^${i}$" <<< "$_ignore" || {
+        REMOTE+="${i}"$'\n'
+        REMOTE_PATH+="${i}:${_remote_path_array[$i]}"$'\n'
+        REMOTE_PATH_ARRAY+=( ["${i}"]="${_remote_path_array[$i]}" )
+    }
+done
+
+# Variable REMOTE dan REMOTE_PATH berisi informasi valid yang sudah filter.
+# Jika PATH tidak kosong, maka sudah trailing slash.
+# Option --directory, meng-override informasi sebelumnya.
+[ -n "$directory" ] && mydirectory="$directory"
+# Jika tidak ada, gunakan current.
+[ -z "$mydirectory" ] && mydirectory="$PWD"
+# Convert . atau .. jika ada.
+mydirectory=$(realpath "$mydirectory")
+# Trailing slash, cegah duplikat.
+mydirectory="${mydirectory%/}/"
 
 [ -n "$1" ] || { echo "Argument <cluster-name> required.">&2; exit 1; }
 cluster_name="$1"; shift;
@@ -125,8 +148,6 @@ if [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
     ISCYGWIN=1
 fi
 
-# Populate variable $mydirectory.
-mydirectory="${DIRECTORIES[$myname]}"
 instance_dir="/dev/shm/${cluster_name}"
 queue_file="${instance_dir}/_queue.txt"
 object_watched_2="$queue_file"
@@ -196,13 +217,13 @@ pullFrom() {
     echo "Pull update from host: ${updated_host}"
     echo "[directory] ("$(date +%Y-%m-%d\ %H:%M:%S)") Pull update from host: ${updated_host}." >> "$log_file"
     if [[ "${#exclude[@]}" == 0 ]];then
-        tempdir="${mydirectory}/.tmp.sync-directory"
+        tempdir="${mydirectory}.tmp.sync-directory"
         mkdir -p "$tempdir"
-        rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr -u "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/" 2>&1 | tee -a "$rsync_output_file"
+        rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr -u "${updated_host}:${REMOTE_PATH_ARRAY[$updated_host]}/" "${mydirectory}" 2>&1 | tee -a "$rsync_output_file"
         rmdir --ignore-fail-on-non-empty "$tempdir"
     else
         while true; do
-            rsync -e "ssh -o ConnectTimeout=2" -n -s -avr -u "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/" 2>&1 | tee "$rsync_list_file"
+            rsync -e "ssh -o ConnectTimeout=2" -n -s -avr -u "${updated_host}:${REMOTE_PATH_ARRAY[$updated_host]}/" "${mydirectory}" 2>&1 | tee "$rsync_list_file"
             _lines=$(wc -l < "$rsync_list_file")
             if [[ $_lines -le 4 ]];then
                 break
@@ -224,9 +245,9 @@ pullFrom() {
             if [[ $_lines -lt 1 ]];then
                 break
             fi
-            tempdir="${mydirectory}/.tmp.sync-directory"
+            tempdir="${mydirectory}.tmp.sync-directory"
             mkdir -p "$tempdir"
-            rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr -u --files-from="$rsync_list_file" "${updated_host}:${DIRECTORIES[$updated_host]}/" "${mydirectory}/"  2>&1 | tee -a "$rsync_output_file"
+            rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr -u --files-from="$rsync_list_file" "${updated_host}:${REMOTE_PATH_ARRAY[$updated_host]}/" "${mydirectory}"  2>&1 | tee -a "$rsync_output_file"
             rmdir --ignore-fail-on-non-empty "$tempdir"
             break
         done
@@ -336,7 +357,7 @@ doStatus() {
 getFile() {
     [ -n "$1" ] || { echo "Argument dibutuhkan.">&2; exit 1; }
     local path="$1" fullpath dirpath hostname found=0
-    tempdir="${mydirectory}/.tmp.sync-directory"
+    tempdir="${mydirectory}.tmp.sync-directory"
     mkdir -p "$tempdir"
     if [ "${path:0:1}" = "/" ];then
         # Absolute path.
@@ -349,12 +370,12 @@ getFile() {
         done <<< "$list_other"
     else
         # Relative path.
-        fullpath="${mydirectory}/${path}"
+        fullpath="${mydirectory}${path}"
         [ -f "$fullpath" ] && { echo "Cancelled. File existing."; exit 1; }
         dirpath=$(dirname "$fullpath")
         mkdir -p "$dirpath"
         while IFS= read -r hostname; do
-            rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr --ignore-existing "${hostname}:${DIRECTORIES[$hostname]}/${path}" "${fullpath}" &
+            rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr --ignore-existing "${hostname}:${REMOTE_PATH_ARRAY[$hostname]}/${path}" "${fullpath}" &
         done <<< "$list_other"
     fi
     local n=3
@@ -428,7 +449,7 @@ chmod a+x "$action_make_dir"
 # Begin Bash Script.
 cat <<'EOF' > "$queue_watcher"
 #!/bin/bash
-cluster_name="$1"; myname="$2";
+cluster_name="$1"; mydirectory="$2";
 instance_dir="/dev/shm/${cluster_name}"; queue_file="${instance_dir}/_queue.txt"
 line_file="${instance_dir}/_line.txt"; log_file="${instance_dir}/_log.txt"
 command_file="${instance_dir}/_command.txt"; updated_file="${instance_dir}/_updated.txt"
@@ -880,7 +901,7 @@ REMOTE_PATH=$(cat -)
 while IFS= read -r line; do
     _hostname=$(cut -d: -f1 <<< "$line")
     _directory=$(cut -d: -f2 <<< "$line")
-    [[ "$_hostname" == "$myname" ]] && mydirectory="$_directory" || list_other+="$_hostname"$'\n'
+    list_other+="$_hostname"$'\n'
 done <<< "$REMOTE_PATH"
 [ -n "$list_other" ] && list_other=${list_other%$'\n'} # trim trailing \n
 
@@ -920,13 +941,13 @@ EOF
 cat <<'EOF' > "$action_rsync_push"
 #!/bin/bash
 mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5";
-tempdir="${hostnamedirectory}/.tmp.sync-directory"
-fullpath1="${hostnamedirectory}/${relPath1}"
+tempdir="${hostnamedirectory}.tmp.sync-directory"
+fullpath1="${hostnamedirectory}${relPath1}"
 dirpath1=$(dirname "$fullpath1")
 basename1=$(basename "$fullpath1")
 temppath1="${dirpath1}/.${basename1}.ignore-this"
 [ -n "$relPath2" ] && {
-    fullpath2="${hostnamedirectory}/${relPath2}"
+    fullpath2="${hostnamedirectory}${relPath2}"
     dirpath2=$(dirname "$fullpath2")
     basename2=$(basename "$fullpath2")
     temppath2="${dirpath2}/.${basename2}.ignore-this"
@@ -935,7 +956,7 @@ ssh "$hostname" '
     mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
     mkdir -p "'"$tempdir"'";
     '
-rsync -T "$tempdir" -s -avr "${mydirectory}/${relPath1}" "${hostname}:$fullpath1"
+rsync -T "$tempdir" -s -avr "${mydirectory}${relPath1}" "${hostname}:$fullpath1"
 ssh "$hostname" '
     sleep 1
     rm -rf "'"$temppath1"'"
@@ -947,13 +968,13 @@ cat <<'EOF' > "$action_remove_force"
 # Something bisa file atau direktori.
 # Gunakan sleep untuk mengerem command remove file temp.
 mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5"
-tempdir="${hostnamedirectory}/.tmp.sync-directory"
-fullpath1="${hostnamedirectory}/${relPath1}"
+tempdir="${hostnamedirectory}.tmp.sync-directory"
+fullpath1="${hostnamedirectory}${relPath1}"
 dirpath1=$(dirname "$fullpath1")
 basename1=$(basename "$fullpath1")
 temppath1="${dirpath1}/.${basename1}.ignore-this"
 [ -n "$relPath2" ] && {
-    fullpath2="${hostnamedirectory}/${relPath2}"
+    fullpath2="${hostnamedirectory}${relPath2}"
     dirpath2=$(dirname "$fullpath2")
     basename2=$(basename "$fullpath2")
     temppath2="${dirpath2}/.${basename2}.ignore-this"
@@ -968,13 +989,13 @@ EOF
 cat <<'EOF' > "$action_rename_file"
 #!/bin/bash
 mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5"
-tempdir="${hostnamedirectory}/.tmp.sync-directory"
-fullpath1="${hostnamedirectory}/${relPath1}"
+tempdir="${hostnamedirectory}.tmp.sync-directory"
+fullpath1="${hostnamedirectory}${relPath1}"
 dirpath1=$(dirname "$fullpath1")
 basename1=$(basename "$fullpath1")
 temppath1="${dirpath1}/.${basename1}.ignore-this"
 [ -n "$relPath2" ] && {
-    fullpath2="${hostnamedirectory}/${relPath2}"
+    fullpath2="${hostnamedirectory}${relPath2}"
     dirpath2=$(dirname "$fullpath2")
     basename2=$(basename "$fullpath2")
     temppath2="${dirpath2}/.${basename2}.ignore-this"
@@ -995,7 +1016,7 @@ _buffer=$(ssh "$hostname" '
     fi
     '
 )
-[[ $_buffer == 0 ]] && rsync -T "$tempdir" -s -avr "${mydirectory}/${relPath2}" "${hostname}:$fullpath2"
+[[ $_buffer == 0 ]] && rsync -T "$tempdir" -s -avr "${mydirectory}${relPath2}" "${hostname}:$fullpath2"
 ssh "$hostname" '
     sleep 1
     rm -rf "'"$temppath1"'"
@@ -1006,13 +1027,13 @@ EOF
 cat <<'EOF' > "$action_rename_dir"
 #!/bin/bash
 mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5"
-tempdir="${hostnamedirectory}/.tmp.sync-directory"
-fullpath1="${hostnamedirectory}/${relPath1}"
+tempdir="${hostnamedirectory}.tmp.sync-directory"
+fullpath1="${hostnamedirectory}${relPath1}"
 dirpath1=$(dirname "$fullpath1")
 basename1=$(basename "$fullpath1")
 temppath1="${dirpath1}/.${basename1}.ignore-this"
 [ -n "$relPath2" ] && {
-    fullpath2="${hostnamedirectory}/${relPath2}"
+    fullpath2="${hostnamedirectory}${relPath2}"
     dirpath2=$(dirname "$fullpath2")
     basename2=$(basename "$fullpath2")
     temppath2="${dirpath2}/.${basename2}.ignore-this"
@@ -1033,13 +1054,13 @@ cat <<'EOF' > "$action_make_dir"
 # mkdir terlalu rumit dan njelimit.
 # jadi kita biarkan terjadi efek berantai.
 mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5"
-tempdir="${hostnamedirectory}/.tmp.sync-directory"
-fullpath1="${hostnamedirectory}/${relPath1}"
+tempdir="${hostnamedirectory}.tmp.sync-directory"
+fullpath1="${hostnamedirectory}${relPath1}"
 dirpath1=$(dirname "$fullpath1")
 basename1=$(basename "$fullpath1")
 temppath1="${dirpath1}/.${basename1}.ignore-this"
 [ -n "$relPath2" ] && {
-    fullpath2="${hostnamedirectory}/${relPath2}"
+    fullpath2="${hostnamedirectory}${relPath2}"
     dirpath2=$(dirname "$fullpath2")
     basename2=$(basename "$fullpath2")
     temppath2="${dirpath2}/.${basename2}.ignore-this"
@@ -1051,7 +1072,7 @@ EOF
 # End Bash Script.
 # ------------------------------------------------------------------------------
 
-"$queue_watcher" "$cluster_name" "$myname" <<< "$REMOTE_PATH" &
+"$queue_watcher" "$cluster_name" "$mydirectory" <<< "$REMOTE_PATH" &
 
 IFS=''
 echo "[directory] ("$(date +%Y-%m-%d\ %H:%M:%S)") Start watching." >> "$log_file"
@@ -1087,7 +1108,7 @@ do
     fi
 
     ABSPATH="${DIR}/${FILE}"
-    RELPATH=$(echo "$ABSPATH" | sed "s|${mydirectory}/||")
+    RELPATH=$(echo "$ABSPATH" | sed "s|${mydirectory}||")
     skip=
     for i in "${exclude[@]}"; do
         if [[ "$RELPATH" =~ $i ]];then
