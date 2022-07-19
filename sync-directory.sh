@@ -8,6 +8,10 @@ command -v "ssh" >/dev/null || { echo "ssh command not found."; exit 1; }
 command -v "rsync" >/dev/null || { echo "rsync command not found."; exit 1; }
 command -v "inotifywait" >/dev/null || { echo "inotifywait command not found."; exit 1; }
 
+[ -n "$1" ] || { echo "Argument <cluster-name> required.">&2; exit 1; }
+cluster_name="$1"; shift;
+[[ "$cluster_name" =~ ^[^a-zA-Z] ]] && { echo "Cluster name invalid: \`${cluster_name}\`. Must start with alphabet."; exit 1; }
+
 # Parse Options.
 _new_arguments=()
 
@@ -112,6 +116,7 @@ while IFS= read -r line; do
     [ -n "$_directory" ] && _directory="${_directory%/}/"
     _remote_path_array+=( ["$_hostname"]="$_directory" )
 done <<< "$_remote_dir"
+
 #
 [ -n "$myname" ] && {
     mydirectory=${_remote_path_array[$myname]}
@@ -133,8 +138,9 @@ do
 done
 
 # Variable REMOTE dan REMOTE_PATH berisi informasi valid yang sudah filter.
-# Jika PATH tidak kosong, maka sudah trailing slash.
-# Option --directory, meng-override informasi sebelumnya.
+# Jika PATH tidak kosong, maka tambahkan trailing slash.
+# Option --directory, meng-override informasi directory pada --remote-dir atau
+# --remote-dir-file.
 [ -n "$directory" ] && mydirectory="$directory"
 # Jika tidak ada, gunakan current.
 [ -z "$mydirectory" ] && mydirectory="$PWD"
@@ -143,8 +149,6 @@ mydirectory=$(realpath "$mydirectory")
 # Trailing slash, cegah duplikat.
 mydirectory="${mydirectory%/}/"
 
-[ -n "$1" ] || { echo "Argument <cluster-name> required.">&2; exit 1; }
-cluster_name="$1"; shift;
 
 ISCYGWIN=
 if [[ $(uname | cut -c1-6) == "CYGWIN" ]];then

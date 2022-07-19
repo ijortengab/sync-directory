@@ -2,16 +2,21 @@
 #
 # https://github.com/ijortengab/sync-directory
 # http://ijortengab.id
+source /home/ijortengab/github.com/ijortengab/bash/functions/var-dump.function.sh
 
 # Dependencies.
 command -v "ssh" >/dev/null || { echo "ssh command not found."; exit 1; }
 command -v "rsync" >/dev/null || { echo "rsync command not found."; exit 1; }
 command -v "inotifywait" >/dev/null || { echo "inotifywait command not found."; exit 1; }
 
+[ -n "$1" ] || { echo "Argument <cluster-name> required.">&2; exit 1; }
+cluster_name="$1"; shift;
+[[ "$cluster_name" =~ ^[^a-zA-Z] ]] && { echo "Cluster name invalid: \`${cluster_name}\`. Must start with alphabet."; exit 1; }
+VarDump cluster_name
+
 # Parse Options.
 source $(dirname $0)/parse-1-main.txt
 source $(dirname $0)/debug-1-main.txt
-source /home/ijortengab/github.com/ijortengab/bash/functions/var-dump.function.sh
 
 # Populate variable.
 # _remote_dir= string with multilines, trim trailing line feed (\n)
@@ -57,6 +62,7 @@ while IFS= read -r line; do
     VarDump _hostname _directory
     _remote_path_array+=( ["$_hostname"]="$_directory" )
 done <<< "$_remote_dir"
+
 #
 [ -n "$myname" ] && {
     mydirectory=${_remote_path_array[$myname]}
@@ -68,7 +74,6 @@ done <<< "$_remote_dir"
     _ignore=$(printf $'\n'"%s" "${ignore[@]}")
     _ignore=${_ignore:1}
 }
-VarDump _ignore
 for i in "${!_remote_path_array[@]}"
 do
     grep -q "^${i}$" <<< "$_ignore" || {
@@ -79,9 +84,9 @@ do
 done
 
 # Variable REMOTE dan REMOTE_PATH berisi informasi valid yang sudah filter.
-# Jika PATH tidak kosong, maka sudah trailing slash.
-VarDump _remote_path_array REMOTE REMOTE_PATH REMOTE_PATH_ARRAY
-# Option --directory, meng-override informasi sebelumnya.
+# Jika PATH tidak kosong, maka tambahkan trailing slash.
+# Option --directory, meng-override informasi directory pada --remote-dir atau
+# --remote-dir-file.
 [ -n "$directory" ] && mydirectory="$directory"
 # Jika tidak ada, gunakan current.
 [ -z "$mydirectory" ] && mydirectory="$PWD"
@@ -90,15 +95,12 @@ mydirectory=$(realpath "$mydirectory")
 # Trailing slash, cegah duplikat.
 mydirectory="${mydirectory%/}/"
 
-[ -n "$1" ] || { echo "Argument <cluster-name> required.">&2; exit 1; }
-cluster_name="$1"; shift;
-VarDump REMOTE REMOTE_PATH '------'
+source $(dirname $0)/debug-1-main.txt
 
 ISCYGWIN=
 if [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
     ISCYGWIN=1
 fi
-VarDump directory mydirectory
 
 instance_dir="/dev/shm/${cluster_name}"
 queue_file="${instance_dir}/_queue.txt"
@@ -851,7 +853,6 @@ fi
 
 REMOTE_PATH=$(cat -)
 source /home/ijortengab/github.com/ijortengab/bash/functions/var-dump.function.sh
-VarDump REMOTE_PATH
 while IFS= read -r line; do
     _hostname=$(cut -d: -f1 <<< "$line")
     _directory=$(cut -d: -f2 <<< "$line")
@@ -859,10 +860,6 @@ while IFS= read -r line; do
 done <<< "$REMOTE_PATH"
 [ -n "$list_other" ] && list_other=${list_other%$'\n'} # trim trailing \n
 
-# VarDump list_other
-VarDump mydirectory
-VarDump object_watched_2
-VarDump inotifywait
 while inotifywait -q -e modify "$object_watched_2"; do
     # Get current LINE.
     if [[ -s "$line_file" ]];then
