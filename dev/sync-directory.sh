@@ -20,9 +20,10 @@ source $(dirname $0)/parse-options-1-core-debug.txt
 
 # Populate variable.
 # _remote_dir= string with multilines, trim trailing line feed (\n)
-# _remote_path_array=  associative array
+# _remote_path_array=  associative array, belum difilter oleh --ignore.
 # REMOTE= string with multilines, trim trailing line feed (\n)
 # REMOTE_PATH= string with multilines, trim trailing line feed (\n)
+# REMOTE_PATH_ARRAY=associative array, sudah difilter oleh --ignore.
 REMOTE=
 REMOTE_PATH=
 _remote_dir=
@@ -35,7 +36,7 @@ declare -A REMOTE_PATH_ARRAY
     [ -f "$remote_dir_file" ] && _remote_dir=$(<"$remote_dir_file") || echo "File ${remote_dir_file} not found.">&2;
 }
 
-VarDump _remote_dir
+# VarDump _remote_dir
 [ "${#remote_dir[@]}" -gt 0 ] && {
     _remote_dir+=$'\n'
     _implode=$(printf $'\n'"%s" "${remote_dir[@]}")
@@ -46,7 +47,7 @@ VarDump _remote_dir
 [ -z "$_remote_dir" ] && {
     echo "Requires at least one remote directory [--remote-dir],[--remote-dir-file].">&2; exit 1;
 }
-VarDump _remote_dir
+# VarDump _remote_dir
 # Filter yang duplicate. Kita gunakan value yang terakhir.
 while IFS= read -r line; do
     # Skip comment line.
@@ -59,7 +60,7 @@ while IFS= read -r line; do
     _directory=${line}
     # Trailing slash, cegah duplikat.
     [ -n "$_directory" ] && _directory="${_directory%/}/"
-    VarDump _hostname _directory
+    # VarDump _hostname _directory
     _remote_path_array+=( ["$_hostname"]="$_directory" )
 done <<< "$_remote_dir"
 
@@ -83,7 +84,7 @@ do
     }
 done
 
-VarDump REMOTE REMOTE_PATH REMOTE_PATH_ARRAY
+# VarDump REMOTE REMOTE_PATH REMOTE_PATH_ARRAY
 # Variable REMOTE dan REMOTE_PATH berisi informasi valid yang sudah filter.
 # Jika PATH tidak kosong, maka tambahkan trailing slash.
 # Option --directory, meng-override informasi directory pada --remote-dir atau
@@ -96,7 +97,23 @@ mydirectory=$(realpath "$mydirectory")
 # Trailing slash, cegah duplikat.
 mydirectory="${mydirectory%/}/"
 
-source $(dirname $0)/debug-1-main.txt
+parseStartCommand() {
+source $(dirname $0)/parse-options-2-start.txt
+source $(dirname $0)/parse-options-2-start-debug.txt
+}
+# Process command.
+command="$1"; shift
+
+case "$command" in
+    test) ;;
+    start) parseStartCommand "$@";;
+    status) ;;
+    stop) ;;
+    update-latest) ;;
+    update) ;;
+    restart) ;;
+    get-file) ;;
+esac
 
 ISCYGWIN=
 if [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
@@ -148,6 +165,7 @@ format='<<%e>><<%w>><<%f>><<%T>>'
 
 # Kill existing before.
 doStop() {
+    local command
     PIDS=()
     command="${bin} -q -e modify ${object_watched_2}"
     while read -r _pid; do
@@ -297,6 +315,7 @@ doTest() {
 }
 
 doStatus() {
+    local command
     command="${bin} -q -e modify,create,delete,move -m -r --timefmt %Y%m%d-%H%M%S --format ${format} ${object_watched}"
     PIDS=()
     while read -r _pid; do
