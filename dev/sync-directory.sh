@@ -47,7 +47,7 @@ declare -A REMOTE_PATH_ARRAY
 [ -z "$_remote_dir" ] && {
     echo "Requires at least one remote directory [--remote-dir],[--remote-dir-file].">&2; exit 1;
 }
-# VarDump _remote_dir
+VarDump _remote_dir
 # Filter yang duplicate. Kita gunakan value yang terakhir.
 while IFS= read -r line; do
     # Skip comment line.
@@ -55,6 +55,8 @@ while IFS= read -r line; do
         continue
     fi
     _hostname=$(cut -d: -f1 <<< "$line")
+    # Baris yang kosong, kita lewati
+    [ -z "$_hostname" ] && continue
     line=$(sed 's/^'"$_hostname"'//' <<< "$line")
     [[ "${line:0:1}" == ':' ]] && line="${line:1}"
     _directory=${line}
@@ -103,19 +105,24 @@ parseStartCommand() {
 source $(dirname $0)/parse-options-2-start.txt
 source $(dirname $0)/parse-options-2-start-debug.txt
 }
-# Process command.
-command="$1"; shift
 
-case "$command" in
-    test) ;;
-    start) parseStartCommand "$@";;
-    status) ;;
-    stop) ;;
-    update-latest) ;;
-    update) ;;
-    restart) ;;
-    get-file) ;;
-esac
+# populate global variable rsync_args
+parseRsyncCommand() {
+source $(dirname $0)/parse-options-3-rsync.txt
+source $(dirname $0)/parse-options-3-rsync-debug.txt
+
+    # Save Positional Argument to Global Array.
+    rsync_args=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            *) rsync_args+=("$1"); shift ;;
+        esac
+    done
+}
+
+prepareDirectory() {
+    mkdir -p "$instance_dir"
+}
 
 ISCYGWIN=
 if [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
@@ -229,6 +236,7 @@ pullFrom() {
     fi
 }
 
+# populate global variable: updated, updated_host
 getLatestUpdateHost() {
     local hostname _updated updated_host_file
     while IFS= read -r hostname; do
@@ -378,6 +386,74 @@ getFile() {
     echo "File pulled successfully.";
 }
 
+doRsync() {
+    local source destination relPath
+    local line _target _implode _remote
+    VarDump pull push target
+    [[ -n "$pull" && -n "$push" ]] && { echo "[rsync] Choose one: --pull or --push, not both.">&2; exit 1; }
+    [[ -z "$pull" && -z "$push" ]] && { echo "[rsync] Choose one: --pull or --push, can't empty.">&2; exit 1; }
+    if [ -n "$path" ];then
+        [[ "${path:0:1}" == '/' ]] && { echo "[rsync] Can't absolute path: ${path}.">&2; exit 1; }
+        relPath="$path"
+    fi
+    # Populate `$_remote` variable.
+    if [ -n "$all" ];then
+        _remote+="$REMOTE"$'\n'
+    else
+        if [ "${#target[@]}" -gt 0 ];then
+            _implode=$(printf $'\n'"%s" "${target[@]}")
+            _implode=${_implode:1}
+            _target="$_implode"
+            while IFS= read -r line; do
+                grep -q "^${line}$" <<< "$REMOTE" && {
+                    _remote+="$line"$'\n'
+                }
+                # VarDump line
+            done <<< "$_target"
+        fi
+        if [ -n "$latest" ];then
+            # getLatestUpdateHost
+            # hack sementara
+            updated_host=pcyuli
+            [ -n "$updated_host" ] && {
+                _remote+="$updated_host"$'\n'
+            }
+        fi
+    fi
+    [ -n "$_remote" ] && _remote=${_remote%$'\n'} # trim trailing \n
+
+    # Execute.
+    set -- "${rsync_args[@]}"
+    VarDump _target _remote '<mantab>'$#  sisa
+    while IFS= read -r hostname; do
+        if [ -n "$pull" ];then
+            tempdir="${mydirectory}.tmp.sync-directory"
+            mkdir -p "$tempdir"
+            rsync \
+                -e "ssh -o ConnectTimeout=2" \
+                -T "$tempdir" \
+                -s -avr \
+                "$@" \
+                "${hostname}:${REMOTE_PATH_ARRAY[$hostname]}${relPath}" \
+                "${mydirectory}${relPath}"
+            rmdir --ignore-fail-on-non-empty "$tempdir"
+        else
+            tempdir="${REMOTE_PATH_ARRAY[$hostname]}.tmp.sync-directory"
+            ssh "$hostname" mkdir -p "$tempdir"
+            rsync \
+                -e "ssh -o ConnectTimeout=2" \
+                -T "$tempdir" \
+                -s -avr \
+                "$@" \
+                "${mydirectory}${relPath}" \
+                "${hostname}:${REMOTE_PATH_ARRAY[$hostname]}${relPath}"
+            ssh "$hostname" rmdir --ignore-fail-on-non-empty "$tempdir"
+        fi
+    done <<< "$_remote"
+}
+
+command="$1"; shift
+
 case "$command" in
     status) doStatus; exit;;
     test) doTest; exit;;
@@ -391,6 +467,7 @@ case "$command" in
         exit
         ;;
     start)
+        parseStartCommand "$@"
         doStop
         doUpdateLatest
         ;;
@@ -405,8 +482,13 @@ case "$command" in
         getFile "$2"
         exit
         ;;
+    rsync)
+        parseRsyncCommand "$@"
+        doRsync "$@"
+        exit
+        ;;
     *)
-        echo Command available: test, start, status, stop, update-latest, update, restart, get-file. >&2
+        echo Command available: test, start, status, stop, update-latest, update, restart, get-file, rsync. >&2
         exit 1
 esac
 

@@ -30,7 +30,7 @@ while [[ $# -gt 0 ]]; do
         --remote-dir-file=*|-f=*) remote_dir_file="${1#*=}"; shift ;;
         --remote-dir-file|-f) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then remote_dir_file="$2"; shift; fi; shift ;;
         --[^-]*) shift ;;
-        test|start|status|stop|update-latest|update|restart|get-file)
+        test|start|status|stop|update-latest|update|restart|get-file|rsync)
             while [[ $# -gt 0 ]]; do
                 case "$1" in
                     *) _new_arguments+=("$1"); shift ;;
@@ -60,7 +60,7 @@ while [[ $# -gt 0 ]]; do
             done
             shift "$((OPTIND-1))"
             ;;
-        test|start|status|stop|update-latest|update|restart|get-file)
+        test|start|status|stop|update-latest|update|restart|get-file|rsync)
             while [[ $# -gt 0 ]]; do
                 case "$1" in
                     *) _new_arguments+=("$1"); shift ;;
@@ -110,6 +110,8 @@ while IFS= read -r line; do
         continue
     fi
     _hostname=$(cut -d: -f1 <<< "$line")
+    # Baris yang kosong, kita lewati
+    [ -z "$_hostname" ] && continue
     line=$(sed 's/^'"$_hostname"'//' <<< "$line")
     [[ "${line:0:1}" == ':' ]] && line="${line:1}"
     _directory=${line}
@@ -190,19 +192,86 @@ parseStartCommand() {
 
     unset _new_arguments
 }
-# Process command.
-command="$1"; shift
 
-case "$command" in
-    test) ;;
-    start) parseStartCommand "$@";;
-    status) ;;
-    stop) ;;
-    update-latest) ;;
-    update) ;;
-    restart) ;;
-    get-file) ;;
-esac
+# populate global variable rsync_args
+parseRsyncCommand() {
+    _new_arguments=()
+    _n=
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --all) all=1; shift ;;
+            --latest) latest=1; shift ;;
+            --path=*|-p=*) path="${1#*=}"; shift ;;
+            --path|-p) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then path="$2"; shift; fi; shift ;;
+            --pull) pull=1; shift ;;
+            --push) push=1; shift ;;
+            --target=*|-t=*) target+=("${1#*=}"); shift ;;
+            --target|-t) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then target+=("$2"); shift; fi; shift ;;
+            --)
+                while [[ $# -gt 0 ]]; do
+                    case "$1" in
+                        *) _new_arguments+=("$1"); shift ;;
+                    esac
+                done
+                ;;
+            --[^-]*) shift ;;
+            *) _new_arguments+=("$1"); shift ;;
+        esac
+    done
+
+    set -- "${_new_arguments[@]}"
+
+    _new_arguments=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -[^-]*) OPTIND=1
+                while getopts ":p:t:" opt; do
+                    case $opt in
+                        p) path="$OPTARG" ;;
+                        t) target+=("$OPTARG") ;;
+                    esac
+                done
+                _n="$((OPTIND-1))"
+                _n=${!_n}
+                shift "$((OPTIND-1))"
+                if [[ "$_n" == '--' ]];then
+                    while [[ $# -gt 0 ]]; do
+                        case "$1" in
+                            *) _new_arguments+=("$1"); shift ;;
+                        esac
+                    done
+                fi
+                ;;
+            --) shift
+                while [[ $# -gt 0 ]]; do
+                    case "$1" in
+                        *) _new_arguments+=("$1"); shift ;;
+                    esac
+                done
+                ;;
+            *) _new_arguments+=("$1"); shift ;;
+        esac
+    done
+
+    set -- "${_new_arguments[@]}"
+
+    unset _new_arguments
+    unset _n
+
+    # Save Positional Argument to Global Array.
+    rsync_args=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            *) rsync_args+=("$1"); shift ;;
+        esac
+    done
+}
+
+prepareDirectory() {
+    mkdir -p "$instance_dir"
+}
 
 ISCYGWIN=
 if [[ $(uname | cut -c1-6) == "CYGWIN" ]];then
@@ -316,6 +385,7 @@ pullFrom() {
     fi
 }
 
+# populate global variable: updated, updated_host
 getLatestUpdateHost() {
     local hostname _updated updated_host_file
     while IFS= read -r hostname; do
@@ -463,6 +533,71 @@ getFile() {
     echo "File pulled successfully.";
 }
 
+doRsync() {
+    local source destination relPath
+    local line _target _implode _remote
+    [[ -n "$pull" && -n "$push" ]] && { echo "[rsync] Choose one: --pull or --push, not both.">&2; exit 1; }
+    [[ -z "$pull" && -z "$push" ]] && { echo "[rsync] Choose one: --pull or --push, can't empty.">&2; exit 1; }
+    if [ -n "$path" ];then
+        [[ "${path:0:1}" == '/' ]] && { echo "[rsync] Can't absolute path: ${path}.">&2; exit 1; }
+        relPath="$path"
+    fi
+    # Populate `$_remote` variable.
+    if [ -n "$all" ];then
+        _remote+="$REMOTE"$'\n'
+    else
+        if [ "${#target[@]}" -gt 0 ];then
+            _implode=$(printf $'\n'"%s" "${target[@]}")
+            _implode=${_implode:1}
+            _target="$_implode"
+            while IFS= read -r line; do
+                grep -q "^${line}$" <<< "$REMOTE" && {
+                    _remote+="$line"$'\n'
+                }
+            done <<< "$_target"
+        fi
+        if [ -n "$latest" ];then
+            # getLatestUpdateHost
+            # hack sementara
+            updated_host=pcyuli
+            [ -n "$updated_host" ] && {
+                _remote+="$updated_host"$'\n'
+            }
+        fi
+    fi
+    [ -n "$_remote" ] && _remote=${_remote%$'\n'} # trim trailing \n
+
+    # Execute.
+    set -- "${rsync_args[@]}"
+    while IFS= read -r hostname; do
+        if [ -n "$pull" ];then
+            tempdir="${mydirectory}.tmp.sync-directory"
+            mkdir -p "$tempdir"
+            rsync \
+                -e "ssh -o ConnectTimeout=2" \
+                -T "$tempdir" \
+                -s -avr \
+                "$@" \
+                "${hostname}:${REMOTE_PATH_ARRAY[$hostname]}${relPath}" \
+                "${mydirectory}${relPath}"
+            rmdir --ignore-fail-on-non-empty "$tempdir"
+        else
+            tempdir="${REMOTE_PATH_ARRAY[$hostname]}.tmp.sync-directory"
+            ssh "$hostname" mkdir -p "$tempdir"
+            rsync \
+                -e "ssh -o ConnectTimeout=2" \
+                -T "$tempdir" \
+                -s -avr \
+                "$@" \
+                "${mydirectory}${relPath}" \
+                "${hostname}:${REMOTE_PATH_ARRAY[$hostname]}${relPath}"
+            ssh "$hostname" rmdir --ignore-fail-on-non-empty "$tempdir"
+        fi
+    done <<< "$_remote"
+}
+
+command="$1"; shift
+
 case "$command" in
     status) doStatus; exit;;
     test) doTest; exit;;
@@ -476,6 +611,7 @@ case "$command" in
         exit
         ;;
     start)
+        parseStartCommand "$@"
         doStop
         doUpdateLatest
         ;;
@@ -490,8 +626,13 @@ case "$command" in
         getFile "$2"
         exit
         ;;
+    rsync)
+        parseRsyncCommand "$@"
+        doRsync "$@"
+        exit
+        ;;
     *)
-        echo Command available: test, start, status, stop, update-latest, update, restart, get-file. >&2
+        echo Command available: test, start, status, stop, update-latest, update, restart, get-file, rsync. >&2
         exit 1
 esac
 

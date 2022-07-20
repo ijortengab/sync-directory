@@ -21,6 +21,7 @@ OPERAND=(
     update
     restart
     get-file
+    rsync
 )
 VALUE=(
     '--myname|-n'
