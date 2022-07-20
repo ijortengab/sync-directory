@@ -122,6 +122,7 @@ done <<< "$_remote_dir"
 
 #
 [ -n "$myname" ] && {
+    # Jika ada informasi pada option --remote-dir atau --remote-dir-file.
     mydirectory=${_remote_path_array[$myname]}
     # Tambahkan ke ignore.
     ignore+=( "$myname" )
@@ -387,6 +388,7 @@ pullFrom() {
 
 # populate global variable: updated, updated_host
 getLatestUpdateHost() {
+    prepareDirectory
     local hostname _updated updated_host_file
     while IFS= read -r hostname; do
         updated_host_file="${instance_dir}/_updated_${hostname}.txt"
@@ -487,10 +489,15 @@ doStatus() {
         [ -n "$_pid" ] && PIDS+=("$_pid")
     done <<< $(getPid inotifywait "$command")
     [[ "${#PIDS[@]}" -gt 0 ]] && {
+        echo -n Synchronize on.
         [[ "${#PIDS[@]}" -gt 1 ]] && _label='PIDS' || _label='PID'
-        echo 'Watching directory: '"$mydirectory"'.'
-        echo "${_label}: ${PIDS[@]}"
-    }
+        echo " ${_label}: ${PIDS[@]}"
+    } || echo Synchronize off.
+    echo 'Local Directory: '"$mydirectory"
+    echo 'Remote Directory:'
+    while IFS= read -r line; do
+        echo " - ${line}"
+    done <<< "$REMOTE_PATH"
 }
 
 getFile() {
