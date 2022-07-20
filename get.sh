@@ -1,2 +1,2 @@
 #!/bin/bash
-git restore --source=devel sync-directory.sh
+git restore --source=dev sync-directory.sh
