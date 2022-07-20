@@ -564,9 +564,7 @@ doRsync() {
             done <<< "$_target"
         fi
         if [ -n "$latest" ];then
-            # getLatestUpdateHost
-            # hack sementara
-            updated_host=pcyuli
+            getLatestUpdateHost
             [ -n "$updated_host" ] && {
                 _remote+="$updated_host"$'\n'
             }
@@ -578,6 +576,7 @@ doRsync() {
     set -- "${rsync_args[@]}"
     while IFS= read -r hostname; do
         if [ -n "$pull" ];then
+            echo 'Execute rsync. Pull from '"${hostname}".
             tempdir="${mydirectory}.tmp.sync-directory"
             mkdir -p "$tempdir"
             rsync \
@@ -589,6 +588,7 @@ doRsync() {
                 "${mydirectory}${relPath}"
             rmdir --ignore-fail-on-non-empty "$tempdir"
         else
+            echo 'Execute rsync. Push to '"${hostname}".
             tempdir="${REMOTE_PATH_ARRAY[$hostname]}.tmp.sync-directory"
             ssh "$hostname" mkdir -p "$tempdir"
             rsync \
@@ -614,7 +614,11 @@ case "$command" in
         exit
         ;;
     update)
-        doUpdate
+        doStatus
+        parseRsyncCommand --pull --all -- --update
+        doRsync "$@"
+        prepareDirectory
+        date +%s%n%Y%m%d-%H%M%S > "$updated_file"
         exit
         ;;
     start)
@@ -635,7 +639,7 @@ case "$command" in
         ;;
     rsync)
         parseRsyncCommand "$@"
-        doRsync "$@"
+        doRsync
         exit
         ;;
     *)
