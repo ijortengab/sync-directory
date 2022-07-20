@@ -137,6 +137,8 @@ do
         REMOTE_PATH_ARRAY+=( ["${i}"]="${_remote_path_array[$i]}" )
     }
 done
+[ -n "$REMOTE" ] && REMOTE=${REMOTE%$'\n'} # trim trailing \n
+[ -n "$REMOTE_PATH" ] && REMOTE_PATH=${REMOTE_PATH%$'\n'} # trim trailing \n
 
 # Variable REMOTE dan REMOTE_PATH berisi informasi valid yang sudah filter.
 # Jika PATH tidak kosong, maka tambahkan trailing slash.
@@ -314,15 +316,14 @@ pullFrom() {
     fi
 }
 
-doUpdateLatest() {
-    local updated updated_host hostname _updated updated_host_file
+getLatestUpdateHost() {
+    local hostname _updated updated_host_file
     while IFS= read -r hostname; do
         updated_host_file="${instance_dir}/_updated_${hostname}.txt"
         rm -rf "$updated_host_file"
-		# @todo, ganti pake rsync
-        ssh "$hostname" '
-            head -n1 "'"$updated_file"'" | ssh "'"$myname"'" "cat > "'"$updated_host_file"'""
-            ' &
+        ssh -o StrictHostKeyChecking=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no "$hostname" '
+            [ -f "'"$updated_file"'" ] && cat "'"$updated_file"'" | head -n1
+            ' > "$updated_host_file" &
     done <<< "$REMOTE"
     local n=5
     until [[ $n == 0 ]]; do
@@ -356,6 +357,13 @@ doUpdateLatest() {
         }
         rm -rf "$updated_host_file"
     done <<< "$REMOTE"
+    [ -n "$updated_host" ] && {
+        echo "$updated_host is updated. "
+    }
+}
+
+doUpdateLatest() {
+    getLatestUpdateHost
     [ -n "$updated_host" ] && {
         pullFrom "$updated_host"
         date +%s%n%Y%m%d-%H%M%S -d '@'$updated > "$updated_file"
@@ -455,7 +463,7 @@ getFile() {
     echo "File pulled successfully.";
 }
 
-case "$1" in
+case "$command" in
     status) doStatus; exit;;
     test) doTest; exit;;
     stop)
