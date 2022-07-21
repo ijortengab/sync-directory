@@ -1,12 +1,8 @@
 #!/bin/bash
 
+OPTIONS4EMBED='--compact --clean --no-error-invalid-options --no-error-require-arguments --no-hash-bang --no-original-arguments'
 parse-options.sh \
-    --compact \
-    --clean \
-    --no-error-invalid-options \
-    --no-error-require-arguments \
-    --no-hash-bang \
-    --no-original-arguments \
+    $OPTIONS4EMBED \
     --output-file parse-options-3-rsync.txt \
     --debug-file parse-options-3-rsync-debug.txt \
     << EOF

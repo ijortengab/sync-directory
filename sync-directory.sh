@@ -8,7 +8,57 @@ command -v "ssh" >/dev/null || { echo "ssh command not found."; exit 1; }
 command -v "rsync" >/dev/null || { echo "rsync command not found."; exit 1; }
 command -v "inotifywait" >/dev/null || { echo "inotifywait command not found."; exit 1; }
 
-[ -n "$1" ] || { echo "Argument <cluster-name> required.">&2; exit 1; }
+Usage() {
+    cat << 'EOF'
+Usage:
+  sync-directory.sh --help
+  sync-directory.sh <cluster-name> --remote-dir-file=<file> [--myname=NAME] <command>
+  sync-directory.sh <cluster-name> --remote-dir=<HOST:PATH>... [--directory=<DIR>] <command>
+
+Options:
+  --remote-dir, -r        String that contains remote directory address.
+                          Address that ssh command understand.
+  --remote-dir-file, -f   File that contains remote directory address.
+                          Address that ssh command understand.
+  --my-name, -n           Our hostname in --remote-dir-file to automatically
+                          get directory.
+  --ignore, -i            Ignore other hostname.
+  --directory, -d         Set directory.
+
+Available Commands:
+  start       ([--pull-all]|[--pull=hostname]...[--pull-latest]) [--exclude=<regex>]...
+              Start monitoring local directory.
+  stop        Stop monitoring local directory.
+  status      Show monitoring status.
+  rsync       (--pull | --push) (--target=hostname...|--latest|--all) [--path=PATH] [-- [-]...]
+              Perform rsync command for push or pull.
+  get         <path> [<countdown>]
+              Get file immediately from other host.
+              Shortcut for:
+              rsync --pull --all --parallel --path=<path> -- --ignore-existing
+  update      Update directory from other host.
+              Shortcut for:
+              rsync --pull --all --path=<path> -- --update
+
+Start command options:
+  --pull-all              Pull everything from all host before start monitoring.
+  --pull-latest           Pull everything from most updated host before start monitoring.
+  --pull                  Pull everything from host before start monitoring.
+  --exclude, -e           Exclude pattern of path that will be ignore from monitoring.
+
+Rsync command options:
+  --pull                  Perform sync pull from remote host to local.
+  --push                  Perform sync push from local to remote host.
+  --all                   Pull/Push everything from all host.
+  --latest                Pull/Push everything from most updated host.
+  --target                Pull/Push everything from target host.
+  --path                  Path file/directory to perform syc.
+  --parallel              Run multiple rsync as parallel.
+EOF
+}
+
+[ -n "$1" ] || { Usage >&2; exit 1; }
+[[ "$1" == '--help' || "$1" == '-h' ]] && { Usage >&2; exit 1; }
 cluster_name="$1"; shift;
 [[ "$cluster_name" =~ ^[^a-zA-Z] ]] && { echo "Cluster name invalid: \`${cluster_name}\`. Must start with alphabet."; exit 1; }
 
