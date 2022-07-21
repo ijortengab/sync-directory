@@ -425,11 +425,12 @@ doRsync() {
             }
         fi
     fi
-    [ -n "$_remote" ] && _remote=${_remote%$'\n'} # trim trailing \n
+    [ -n "$_remote" ] && _remote=${_remote%$'\n'} || return 1 # trim trailing \n
 
     # Execute.
     set -- "${rsync_args[@]}"
-    VarDump _target _remote '<mantab>'$#  sisa
+    VarDump _target _remote
+
     while IFS= read -r hostname; do
         if [ -n "$pull" ];then
             echo 'Execute rsync. Pull from '"${hostname}".
@@ -479,15 +480,9 @@ case "$command" in
         ;;
     start)
         parseStartCommand "$@"
-        doStop
-        doUpdateLatest
         ;;
     restart)
         doStop
-        ;;
-    update-latest)
-        doUpdateLatest
-        exit
         ;;
     get-file)
         getFile "$2"
@@ -499,9 +494,16 @@ case "$command" in
         exit
         ;;
     *)
-        echo Command available: test, start, status, stop, update-latest, update, restart, get-file, rsync. >&2
+        echo Command available: test, start, status, stop, update, restart, get-file, rsync. >&2
         exit 1
 esac
+
+# Command start below.
+doStop
+if [[ -n "$all" || -n "$latest" || "${#target[@]}" -gt 0 ]];then
+    pull=1
+    doRsync
+fi
 
 mkdir -p "$instance_dir"
 touch "$queue_file"

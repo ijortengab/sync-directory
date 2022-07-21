@@ -12,12 +12,12 @@ parse-options.sh \
     --debug-file parse-options-2-start-debug.txt \
     << EOF
 LEADING_SPACE='    '
-FLAG=(
-    --pull-all
-    --pull-latest
-)
-VALUE=(
-    '--pull'
+MULTIVALUE=(
     '--exclude|-e'
+)
+CSV=(
+    'long:--pull-all,parameter:all'
+    'long:--pull-latest,parameter:latest'
+    'long:--pull,parameter:target,type:multivalue'
 )
 EOF

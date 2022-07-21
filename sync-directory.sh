@@ -30,7 +30,7 @@ while [[ $# -gt 0 ]]; do
         --remote-dir-file=*|-f=*) remote_dir_file="${1#*=}"; shift ;;
         --remote-dir-file|-f) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then remote_dir_file="$2"; shift; fi; shift ;;
         --[^-]*) shift ;;
-        test|start|status|stop|update-latest|update|restart|get-file|rsync)
+        test|start|status|stop|update|restart|get-file|rsync)
             while [[ $# -gt 0 ]]; do
                 case "$1" in
                     *) _new_arguments+=("$1"); shift ;;
@@ -60,7 +60,7 @@ while [[ $# -gt 0 ]]; do
             done
             shift "$((OPTIND-1))"
             ;;
-        test|start|status|stop|update-latest|update|restart|get-file|rsync)
+        test|start|status|stop|update|restart|get-file|rsync)
             while [[ $# -gt 0 ]]; do
                 case "$1" in
                     *) _new_arguments+=("$1"); shift ;;
@@ -160,12 +160,12 @@ parseStartCommand() {
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --exclude=*|-e=*) exclude="${1#*=}"; shift ;;
-            --exclude|-e) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then exclude="$2"; shift; fi; shift ;;
-            --pull=*) pull="${1#*=}"; shift ;;
-            --pull) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then pull="$2"; shift; fi; shift ;;
-            --pull-all) pull_all=1; shift ;;
-            --pull-latest) pull_latest=1; shift ;;
+            --exclude=*|-e=*) exclude+=("${1#*=}"); shift ;;
+            --exclude|-e) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then exclude+=("$2"); shift; fi; shift ;;
+            --pull-all) all=1; shift ;;
+            --pull-latest) latest=1; shift ;;
+            --pull=*) target+=("${1#*=}"); shift ;;
+            --pull) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then target+=("$2"); shift; fi; shift ;;
             --[^-]*) shift ;;
             *) _new_arguments+=("$1"); shift ;;
         esac
@@ -180,7 +180,7 @@ parseStartCommand() {
             -[^-]*) OPTIND=1
                 while getopts ":e:" opt; do
                     case $opt in
-                        e) exclude="$OPTARG" ;;
+                        e) exclude+=("$OPTARG") ;;
                     esac
                 done
                 shift "$((OPTIND-1))"
@@ -570,10 +570,11 @@ doRsync() {
             }
         fi
     fi
-    [ -n "$_remote" ] && _remote=${_remote%$'\n'} # trim trailing \n
+    [ -n "$_remote" ] && _remote=${_remote%$'\n'} || return 1 # trim trailing \n
 
     # Execute.
     set -- "${rsync_args[@]}"
+
     while IFS= read -r hostname; do
         if [ -n "$pull" ];then
             echo 'Execute rsync. Pull from '"${hostname}".
@@ -623,15 +624,9 @@ case "$command" in
         ;;
     start)
         parseStartCommand "$@"
-        doStop
-        doUpdateLatest
         ;;
     restart)
         doStop
-        ;;
-    update-latest)
-        doUpdateLatest
-        exit
         ;;
     get-file)
         getFile "$2"
@@ -643,9 +638,16 @@ case "$command" in
         exit
         ;;
     *)
-        echo Command available: test, start, status, stop, update-latest, update, restart, get-file, rsync. >&2
+        echo Command available: test, start, status, stop, update, restart, get-file, rsync. >&2
         exit 1
 esac
+
+# Command start below.
+doStop
+if [[ -n "$all" || -n "$latest" || "${#target[@]}" -gt 0 ]];then
+    pull=1
+    doRsync
+fi
 
 mkdir -p "$instance_dir"
 touch "$queue_file"

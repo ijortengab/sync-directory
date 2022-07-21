@@ -17,7 +17,6 @@ OPERAND=(
     start
     status
     stop
-    update-latest
     update
     restart
     get-file
