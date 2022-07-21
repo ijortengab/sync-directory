@@ -19,8 +19,6 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --directory=*|-d=*) directory="${1#*=}"; shift ;;
         --directory|-d) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then directory="$2"; shift; fi; shift ;;
-        --exclude=*|-e=*) exclude+=("${1#*=}"); shift ;;
-        --exclude|-e) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then exclude+=("$2"); shift; fi; shift ;;
         --ignore=*|-i=*) ignore+=("${1#*=}"); shift ;;
         --ignore|-i) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then ignore+=("$2"); shift; fi; shift ;;
         --myname=*|-n=*) myname="${1#*=}"; shift ;;
@@ -48,10 +46,9 @@ _new_arguments=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -[^-]*) OPTIND=1
-            while getopts ":d:e:i:n:r:f:" opt; do
+            while getopts ":d:i:n:r:f:" opt; do
                 case $opt in
                     d) directory="$OPTARG" ;;
-                    e) exclude+=("$OPTARG") ;;
                     i) ignore+=("$OPTARG") ;;
                     n) myname="$OPTARG" ;;
                     r) remote_dir+=("$OPTARG") ;;
@@ -75,9 +72,11 @@ set -- "${_new_arguments[@]}"
 
 unset _new_arguments
 
-# Populate variable.
+# Populate variable: REMOTE, REMOTE_PATH, dan REMOTE_PATH_ARRAY.
+#
 # _remote_dir= string with multilines, trim trailing line feed (\n)
 # _remote_path_array=  associative array, belum difilter oleh --ignore.
+#
 # REMOTE= string with multilines, trim trailing line feed (\n)
 # REMOTE_PATH= string with multilines, trim trailing line feed (\n)
 # REMOTE_PATH_ARRAY=associative array, sudah difilter oleh --ignore.
@@ -87,19 +86,16 @@ _remote_dir=
 _ignore=
 declare -A _remote_path_array
 declare -A REMOTE_PATH_ARRAY
-
 # Verification.
 [ -n "$remote_dir_file" ] && {
     [ -f "$remote_dir_file" ] && _remote_dir=$(<"$remote_dir_file") || echo "File ${remote_dir_file} not found.">&2;
 }
-
 [ "${#remote_dir[@]}" -gt 0 ] && {
     _remote_dir+=$'\n'
     _implode=$(printf $'\n'"%s" "${remote_dir[@]}")
     _implode=${_implode:1}
     _remote_dir+="${_implode}"
 }
-
 [ -z "$_remote_dir" ] && {
     echo "Requires at least one remote directory [--remote-dir],[--remote-dir-file].">&2; exit 1;
 }
@@ -116,11 +112,11 @@ while IFS= read -r line; do
     [[ "${line:0:1}" == ':' ]] && line="${line:1}"
     _directory=${line}
     # Trailing slash, cegah duplikat.
+    # Jika tidak empty string, maka append dengan slash.
     [ -n "$_directory" ] && _directory="${_directory%/}/"
     _remote_path_array+=( ["$_hostname"]="$_directory" )
 done <<< "$_remote_dir"
-
-#
+# $myname optional, hanya untuk populate value mydirectory.
 [ -n "$myname" ] && {
     # Jika ada informasi pada option --remote-dir atau --remote-dir-file.
     mydirectory=${_remote_path_array[$myname]}
@@ -140,11 +136,11 @@ do
         REMOTE_PATH_ARRAY+=( ["${i}"]="${_remote_path_array[$i]}" )
     }
 done
+# Variable REMOTE dan REMOTE_PATH berisi informasi valid yang sudah filter.
 [ -n "$REMOTE" ] && REMOTE=${REMOTE%$'\n'} # trim trailing \n
 [ -n "$REMOTE_PATH" ] && REMOTE_PATH=${REMOTE_PATH%$'\n'} # trim trailing \n
 
-# Variable REMOTE dan REMOTE_PATH berisi informasi valid yang sudah filter.
-# Jika PATH tidak kosong, maka tambahkan trailing slash.
+# Populate variable: mydirectory.
 # Option --directory, meng-override informasi directory pada --remote-dir atau
 # --remote-dir-file.
 [ -n "$directory" ] && mydirectory="$directory"
@@ -399,8 +395,11 @@ doTest() {
     array_list_other=$(tr '\n' ' ' <<< "$REMOTE")
     for hostname in ${array_list_other[@]}; do
         echo -e '- '"\e[33m$hostname\e[0m"
-        echo '  Test connect from '"$myname"' to host '"$hostname"'.'
+        echo '  Test connect to host '"$hostname"'.'
         echo -n '  '; ssh "$hostname" 'echo -e "\e[32mSuccess\e[0m"'
+        if [[ -z "$myname" ]];then
+            continue;
+        fi
         if [[ $? == 0 ]];then
             echo '  Test connect back from host '"$hostname"' to '"$myname"'.'
             echo -n '  '; ssh "$hostname" 'ssh "'"$myname"'" echo -e "\\\e[32mSuccess\\\e[0m"'
