@@ -19,7 +19,7 @@ OPERAND=(
     stop
     update
     restart
-    get-file
+    get
     rsync
 )
 VALUE=(

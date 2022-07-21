@@ -369,12 +369,13 @@ doRsync() {
     # Execute.
     set -- "${rsync_args[@]}"
     VarDump _target _remote
-
-    while IFS= read -r hostname; do
-        if [ -n "$pull" ];then
+    # @ todo buat --async atau --parallel.
+    # @todo, action_rsync_push perlu dibuat function.
+    if [ -n "$pull" ];then
+        tempdir="${mydirectory}.tmp.sync-directory"
+        mkdir -p "$tempdir"
+        while IFS= read -r hostname; do
             echo 'Execute rsync. Pull from '"${hostname}".
-            tempdir="${mydirectory}.tmp.sync-directory"
-            mkdir -p "$tempdir"
             rsync \
                 -e "ssh -o ConnectTimeout=2" \
                 -T "$tempdir" \
@@ -382,8 +383,12 @@ doRsync() {
                 "$@" \
                 "${hostname}:${REMOTE_PATH_ARRAY[$hostname]}${relPath}" \
                 "${mydirectory}${relPath}"
-            rmdir --ignore-fail-on-non-empty "$tempdir"
-        else
+        done <<< "$_remote"
+        # @todo, jika parallel/async, maka direktori tidak dihapus.
+        rmdir --ignore-fail-on-non-empty "$tempdir"
+    else
+        # @todo, gunakan shell script.
+        while IFS= read -r hostname; do
             echo 'Execute rsync. Push to '"${hostname}".
             tempdir="${REMOTE_PATH_ARRAY[$hostname]}.tmp.sync-directory"
             ssh "$hostname" mkdir -p "$tempdir"
@@ -395,8 +400,8 @@ doRsync() {
                 "${mydirectory}${relPath}" \
                 "${hostname}:${REMOTE_PATH_ARRAY[$hostname]}${relPath}"
             ssh "$hostname" rmdir --ignore-fail-on-non-empty "$tempdir"
-        fi
-    done <<< "$_remote"
+        done <<< "$_remote"
+    fi
 }
 
 command="$1"; shift
@@ -412,7 +417,7 @@ case "$command" in
     update)
         doStatus
         parseRsyncCommand --pull --all -- --update
-        doRsync "$@"
+        doRsync
         prepareDirectory
         date +%s%n%Y%m%d-%H%M%S > "$updated_file"
         exit
@@ -423,8 +428,10 @@ case "$command" in
     restart)
         doStop
         ;;
-    get-file)
-        getFile "$2"
+    get)
+        doStatus
+        parseRsyncCommand --pull --latestt --all --path="$1" -- --ignore-existing
+        doRsync
         exit
         ;;
     rsync)
@@ -433,7 +440,7 @@ case "$command" in
         exit
         ;;
     *)
-        echo Command available: test, start, status, stop, update, restart, get-file, rsync. >&2
+        echo Command available: test, start, status, stop, update, restart, get, rsync. >&2
         exit 1
 esac
 
