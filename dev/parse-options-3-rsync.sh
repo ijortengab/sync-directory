@@ -16,6 +16,7 @@ FLAG=(
     --push
     --latest
     --all
+    --parallel
 )
 VALUE=(
     '--path|-p'
