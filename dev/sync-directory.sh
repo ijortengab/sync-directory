@@ -195,48 +195,6 @@ doStop() {
     }
 }
 
-pullFrom() {
-    local updated_host="$1" tempdir _lines
-    echo "Pull update from host: ${updated_host}"
-    echo "[directory] ("$(date +%Y-%m-%d\ %H:%M:%S)") Pull update from host: ${updated_host}." >> "$log_file"
-    if [[ "${#exclude[@]}" == 0 ]];then
-        tempdir="${mydirectory}.tmp.sync-directory"
-        mkdir -p "$tempdir"
-        rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr -u "${updated_host}:${REMOTE_PATH_ARRAY[$updated_host]}/" "${mydirectory}" 2>&1 | tee -a "$rsync_output_file"
-        rmdir --ignore-fail-on-non-empty "$tempdir"
-    else
-        while true; do
-            rsync -e "ssh -o ConnectTimeout=2" -n -s -avr -u "${updated_host}:${REMOTE_PATH_ARRAY[$updated_host]}/" "${mydirectory}" 2>&1 | tee "$rsync_list_file"
-            _lines=$(wc -l < "$rsync_list_file")
-            if [[ $_lines -le 4 ]];then
-                break
-            fi
-            let "_bottom = $_lines - 3"
-            sed -n -i '2,'"$_bottom"'p' "$rsync_list_file"
-            sed -i '/\/$/d' "$rsync_list_file"
-            _lines=$(wc -l < "$rsync_list_file")
-            if [[ $_lines -lt 1 ]];then
-                break
-            fi
-            for i in "${exclude[@]}"; do
-                # escape slash
-                i=$(echo "$i" | sed 's,/,\\/,g')
-                sed -i -E '/'"${i}"'/d' "$rsync_list_file"
-            done
-            sed -i 's,^/,,g' "$rsync_list_file"
-            _lines=$(wc -l < "$rsync_list_file")
-            if [[ $_lines -lt 1 ]];then
-                break
-            fi
-            tempdir="${mydirectory}.tmp.sync-directory"
-            mkdir -p "$tempdir"
-            rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr -u --files-from="$rsync_list_file" "${updated_host}:${REMOTE_PATH_ARRAY[$updated_host]}/" "${mydirectory}"  2>&1 | tee -a "$rsync_output_file"
-            rmdir --ignore-fail-on-non-empty "$tempdir"
-            break
-        done
-    fi
-}
-
 # populate global variable: updated, updated_host
 getLatestUpdateHost() {
     prepareDirectory
@@ -285,25 +243,6 @@ getLatestUpdateHost() {
     [ -n "$updated_host" ] && {
         echo "$updated_host is updated. "
     }
-}
-
-doUpdateLatest() {
-    getLatestUpdateHost
-    [ -n "$updated_host" ] && {
-        pullFrom "$updated_host"
-        date +%s%n%Y%m%d-%H%M%S -d '@'$updated > "$updated_file"
-    }
-}
-
-doUpdate() {
-    local updated updated_host hostname _updated updated_host_file tempdir
-    local _lines tempdir
-    echo "Pull update from all host."
-    echo "[directory] ("$(date +%Y-%m-%d\ %H:%M:%S)") Pull update from all host." >> "$log_file"
-    while IFS= read -r updated_host; do
-        pullFrom "$updated_host"
-    done <<< "$REMOTE"
-    date +%s%n%Y%m%d-%H%M%S > "$updated_file"
 }
 
 doTest() {
