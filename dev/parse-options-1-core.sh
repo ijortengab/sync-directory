@@ -28,7 +28,6 @@ VALUE=(
     '--directory|-d'
 )
 MULTIVALUE=(
-    '--exclude|-e'
     '--remote-dir|-r'
     '--ignore|-i'
 )
