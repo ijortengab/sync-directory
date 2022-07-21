@@ -12,8 +12,13 @@ Usage() {
     cat << 'EOF'
 Usage:
   sync-directory.sh --help
-  sync-directory.sh <cluster-name> --remote-dir-file=<file> [--myname=NAME] <command>
-  sync-directory.sh <cluster-name> --remote-dir=<HOST:PATH>... [--directory=<DIR>] <command>
+  sync-directory.sh <cluster-name> --remote-dir-file=<file> [--myname=NAME] COMMAND
+  sync-directory.sh <cluster-name> --remote-dir=<HOST:PATH>... [--directory=<DIR>] COMMAND
+
+Operand:
+  <cluster-name>          Identify the cluster with a name.
+                          This name for create directory inside /dev/shm.
+                          Each host must have same name.
 
 Options:
   --remote-dir, -r        String that contains remote directory address.
@@ -26,11 +31,13 @@ Options:
   --directory, -d         Set directory.
 
 Available Commands:
+  test        Test ssh connection to all host.
   start       ([--pull-all]|[--pull=hostname]...[--pull-latest]) [--exclude=<regex>]...
               Start monitoring local directory.
   stop        Stop monitoring local directory.
   status      Show monitoring status.
-  rsync       (--pull | --push) (--target=hostname...|--latest|--all) [--path=PATH] [-- [-]...]
+  restart     Restart monitoring local directory.
+  rsync       (--pull | --push) (--target=hostname...|--latest|--all) [--parallel] [--path=PATH] [-- [-]...]
               Perform rsync command for push or pull.
   get         <path> [<countdown>]
               Get file immediately from other host.
@@ -38,7 +45,7 @@ Available Commands:
               rsync --pull --all --parallel --path=<path> -- --ignore-existing
   update      Update directory from other host.
               Shortcut for:
-              rsync --pull --all --path=<path> -- --update
+              rsync --pull --all -- --update
 
 Start command options:
   --pull-all              Pull everything from all host before start monitoring.
@@ -49,11 +56,16 @@ Start command options:
 Rsync command options:
   --pull                  Perform sync pull from remote host to local.
   --push                  Perform sync push from local to remote host.
-  --all                   Pull/Push everything from all host.
-  --latest                Pull/Push everything from most updated host.
-  --target                Pull/Push everything from target host.
-  --path                  Path file/directory to perform syc.
+  --all                   Pull/Push will target all hosts.
+  --latest                Pull/Push will target most updated host.
+  --target                Pull/Push will target specific host only.
+  --path                  Path file/directory to perform sync.
   --parallel              Run multiple rsync as parallel.
+  -- -                    All argument after double dash (--) pass to rsync.
+
+Note:
+ - Restart command use the same options with start command.
+
 EOF
 }
 
@@ -684,10 +696,12 @@ case "$command" in
         ;;
     start)
         doStop
+        rm -rf "$instance_dir"
         parseStartCommand "$@"
         ;;
     restart)
         doStop
+        parseStartCommand "$@"
         ;;
     get)
         [ -f "${mydirectory}${1}" ] && { echo "Cancelled. File existing."; exit 1; }

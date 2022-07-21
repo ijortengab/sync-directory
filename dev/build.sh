@@ -3,6 +3,11 @@
 # Populate parent_dir
 _file=$(realpath "$0")
 _dir=$(dirname "$_file")
+cd "$_dir"
+./parse-options-1-core.sh
+./parse-options-2-start.sh
+./parse-options-3-rsync.sh
+
 file_="${_dir}/sync-directory.sh"
 parent_dir=$(realpath "$_dir"/../)
 
