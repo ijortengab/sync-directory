@@ -203,6 +203,7 @@ parseRsyncCommand() {
         case "$1" in
             --all) all=1; shift ;;
             --latest) latest=1; shift ;;
+            --parallel) parallel=1; shift ;;
             --path=*|-p=*) path="${1#*=}"; shift ;;
             --path|-p) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then path="$2"; shift; fi; shift ;;
             --pull) pull=1; shift ;;
@@ -294,7 +295,6 @@ action_rsync_pull="${instance_dir}/_action_rsync_pull.sh"
 action_remove_force="${instance_dir}/_action_remove_force.sh"
 action_rename_file="${instance_dir}/_action_rename_file.sh"
 action_rename_dir="${instance_dir}/_action_rename_dir.sh"
-action_make_dir="${instance_dir}/_action_make_dir.sh"
 
 # Get pid, return multi line.
 getPid() {
@@ -440,35 +440,14 @@ doStatus() {
     done <<< "$REMOTE_PATH"
 }
 
-getFile() {
-    [ -n "$1" ] || { echo "Argument dibutuhkan.">&2; exit 1; }
-    local path="$1" fullpath dirpath hostname found=0
-    tempdir="${mydirectory}.tmp.sync-directory"
-    mkdir -p "$tempdir"
-    if [ "${path:0:1}" = "/" ];then
-        # Absolute path.
-        fullpath="$path"
-        [ -f "$fullpath" ] && { echo "Cancelled. File existing."; exit 1; }
-        dirpath=$(dirname "$fullpath")
-        mkdir -p "$dirpath"
-        while IFS= read -r hostname; do
-            rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr --ignore-existing "${hostname}:${fullpath}" "${fullpath}" &
-        done <<< "$REMOTE"
-    else
-        # Relative path.
-        fullpath="${mydirectory}${path}"
-        [ -f "$fullpath" ] && { echo "Cancelled. File existing."; exit 1; }
-        dirpath=$(dirname "$fullpath")
-        mkdir -p "$dirpath"
-        while IFS= read -r hostname; do
-            rsync -e "ssh -o ConnectTimeout=2" -T "$tempdir" -s -avr --ignore-existing "${hostname}:${REMOTE_PATH_ARRAY[$hostname]}/${path}" "${fullpath}" &
-        done <<< "$REMOTE"
-    fi
+checkFile() {
     local n=3
+    [ -n "$1" ] || { echo "Argument dibutuhkan.">&2; exit 1; }
+    [[ -n $2 && $2 -gt 3 ]] && n=$2
     until [[ $n == 0 ]]; do
         printf "\r\033[K" >&2
         echo -n Waiting $n...  >&2
-        if [ -f "$fullpath" ];then
+        if [ -f "$1" ];then
             found=1
             break
         fi
@@ -514,31 +493,60 @@ doRsync() {
 
     # Execute.
     set -- "${rsync_args[@]}"
-    # @ todo buat --async atau --parallel.
-    # @todo, action_rsync_push perlu dibuat function.
     if [ -n "$pull" ];then
-        createShellScript action_rsync_pull
+        [ ! -f "$action_rsync_pull" ] && createShellScript action_rsync_pull
+        tempdir="${mydirectory}.tmp.sync-directory"
+        mkdir -p "$tempdir"
         while IFS= read -r hostname; do
             remote_dir="${REMOTE_PATH_ARRAY[$hostname]}"
-            "$action_rsync_pull" "$mydirectory" "$hostname" "$remote_dir" "$relPath" "$@"
+            if [ -n "$parallel" ];then
+                # Sebagai argument, maka tidak boleh empty string.
+                [ -z "$relPath" ] && relPath='-'
+                "$action_rsync_pull" "$mydirectory" "$hostname" "$remote_dir" "$relPath" "$@" &
+            else
+                echo -e 'Execute rsync. Pull from '"\e[0;33m${hostname}\e[0m."
+                rsync \
+                    -T "$tempdir" \
+                    -s -avr \
+                    "$@" \
+                    "${hostname}:${remote_dir}${relPath}" \
+                    "${mydirectory}${relPath}"
+            fi
         done <<< "$_remote"
-        # @todo, jika parallel/async, maka direktori tidak dihapus.
-        tempdir="${mydirectory}.tmp.sync-directory"
-        rmdir --ignore-fail-on-non-empty "$tempdir"
+        if [ -z "$parallel" ];then
+            rmdir --ignore-fail-on-non-empty "$tempdir"
+        fi
     else
-        # @todo, gunakan shell script.
+        [ ! -f "$action_rsync_push" ] && createShellScript action_rsync_push
         while IFS= read -r hostname; do
-            echo 'Execute rsync. Push to '"${hostname}".
-            tempdir="${REMOTE_PATH_ARRAY[$hostname]}.tmp.sync-directory"
-            ssh "$hostname" mkdir -p "$tempdir"
-            rsync \
-                -e "ssh -o ConnectTimeout=2" \
-                -T "$tempdir" \
-                -s -avr \
-                "$@" \
-                "${mydirectory}${relPath}" \
-                "${hostname}:${REMOTE_PATH_ARRAY[$hostname]}${relPath}"
-            ssh "$hostname" rmdir --ignore-fail-on-non-empty "$tempdir"
+            remote_dir="${REMOTE_PATH_ARRAY[$hostname]}"
+            if [ -n "$parallel" ];then
+                # Sebagai argument, maka tidak boleh empty string.
+                [ -z "$relPath" ] && relPath='-'
+                "$action_rsync_push" "$mydirectory" "$hostname" "$remote_dir" "$relPath" "$@" &
+            else
+                echo -e 'Execute rsync. Push to '"\e[0;33m${hostname}\e[0m."
+                tempdir="${remote_dir}.tmp.sync-directory"
+                fullpath="${remote_dir}${relPath}"
+                dirpath=$(dirname "$fullpath")
+                basename=$(basename "$fullpath")
+                temppath="${dirpath}/.${basename}.ignore-this"
+                ssh "$hostname" '
+                    mkdir -p "'"$dirpath"'"; touch "'"$temppath"'"
+                    mkdir -p "'"$tempdir"'";
+                    '
+                rsync \
+                    -T "$tempdir" \
+                    -s -avr \
+                    "$@" \
+                    "${mydirectory}${relPath}" \
+                    "${hostname}:${fullpath}"
+                ssh "$hostname" '
+                    sleep 1
+                    rm -rf "'"$temppath"'"
+                    [ -d "'"$tempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$tempdir"'"
+                    ' &
+            fi
         done <<< "$_remote"
     fi
 }
@@ -551,24 +559,20 @@ createShellScript() {
             chmod a+x "$action_rsync_pull"
             cat <<'EOF' > "$action_rsync_pull"
 #!/bin/bash
-temp_file=$(mktemp)
-mydirectory="$1"
-hostname="$2"
-remote_dir="$3"
-relPath="$4"
+file_output=$(mktemp)
+mydirectory="$1"; hostname="$2"; remote_dir="$3"; relPath="$4"
 shift 4
-echo -e 'Execute rsync. Pull from '"\e[0;33m${hostname}\e[0m". 2>&1 >> $temp_file
+[[ "$relPath" == '-' ]] && relPath=
+echo -e 'Execute rsync. Pull from '"\e[0;33m${hostname}\e[0m." 2>&1 >> $file_output
 tempdir="${mydirectory}.tmp.sync-directory"
-mkdir -p "$tempdir"
 rsync \
-    -e "ssh -o ConnectTimeout=2" \
     -T "$tempdir" \
     -s -avr \
     "$@" \
     "${hostname}:${remote_dir}${relPath}" \
-    "${mydirectory}${relPath}" >> $temp_file 2>&1
-output=$(<$temp_file)
-rm $temp_file
+    "${mydirectory}${relPath}" >> $file_output 2>&1
+output=$(<$file_output)
+rm $file_output
 echo "$output"
 EOF
             ;;
@@ -577,26 +581,32 @@ EOF
             chmod a+x "$action_rsync_push"
             cat <<'EOF' > "$action_rsync_push"
 #!/bin/bash
-mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5";
-tempdir="${hostnamedirectory}.tmp.sync-directory"
-fullpath1="${hostnamedirectory}${relPath1}"
-dirpath1=$(dirname "$fullpath1")
-basename1=$(basename "$fullpath1")
-temppath1="${dirpath1}/.${basename1}.ignore-this"
-[ -n "$relPath2" ] && {
-    fullpath2="${hostnamedirectory}${relPath2}"
-    dirpath2=$(dirname "$fullpath2")
-    basename2=$(basename "$fullpath2")
-    temppath2="${dirpath2}/.${basename2}.ignore-this"
-}
+file_output=$(mktemp)
+mydirectory="$1"; hostname="$2"; remote_dir="$3"; relPath="$4";
+shift 4
+[[ "$relPath" == '-' ]] && relPath=
+echo -e 'Execute rsync. Push to '"\e[0;33m${hostname}\e[0m." 2>&1 >> $file_output
+tempdir="${remote_dir}.tmp.sync-directory"
+fullpath="${remote_dir}${relPath}"
+dirpath=$(dirname "$fullpath")
+basename=$(basename "$fullpath")
+temppath="${dirpath}/.${basename}.ignore-this"
 ssh "$hostname" '
-    mkdir -p "'"$dirpath1"'"; touch "'"$temppath1"'"
+    mkdir -p "'"$dirpath"'"; touch "'"$temppath"'"
     mkdir -p "'"$tempdir"'";
     '
-rsync -T "$tempdir" -s -avr "${mydirectory}${relPath1}" "${hostname}:$fullpath1"
+rsync \
+    -T "$tempdir" \
+    -s -avr \
+    "$@" \
+    "${mydirectory}${relPath}" \
+    "${hostname}:${fullpath}" >> $file_output 2>&1
+output=$(<$file_output)
+rm $file_output
+echo "$output"
 ssh "$hostname" '
     sleep 1
-    rm -rf "'"$temppath1"'"
+    rm -rf "'"$temppath"'"
     [ -d "'"$tempdir"'" ] && rmdir --ignore-fail-on-non-empty "'"$tempdir"'"
     '
 EOF
@@ -610,6 +620,7 @@ case "$command" in
     status) doStatus; exit;;
     test) doTest; exit;;
     stop)
+        prepareDirectory
         echo "[directory] ("$(date +%Y-%m-%d\ %H:%M:%S)") Stop watching." >> "$log_file"
         doStop;
         exit
@@ -623,15 +634,18 @@ case "$command" in
         exit
         ;;
     start)
+        doStop
         parseStartCommand "$@"
         ;;
     restart)
         doStop
         ;;
     get)
+        [ -f "${mydirectory}${1}" ] && { echo "Cancelled. File existing."; exit 1; }
         doStatus
-        parseRsyncCommand --pull --latestt --all --path="$1" -- --ignore-existing
-        doRsync
+        parseRsyncCommand --pull --all --parallel --path="$1" -- -e ssh\ -o\ ConnectTimeout=2 --ignore-existing
+        doRsync > /dev/null
+        checkFile "${mydirectory}${1}" "$2"
         exit
         ;;
     rsync)
@@ -645,7 +659,7 @@ case "$command" in
 esac
 
 # Command start below.
-doStop
+
 if [[ -n "$all" || -n "$latest" || "${#target[@]}" -gt 0 ]];then
     pull=1
     doRsync
@@ -657,15 +671,13 @@ touch "$line_file"
 touch "$log_file"
 touch "$queue_watcher"
 chmod a+x "$queue_watcher"
-createShellScript action_rsync_push
+[ ! -f "$action_rsync_push" ] && createShellScript action_rsync_push
 touch "$action_remove_force"
 chmod a+x "$action_remove_force"
 touch "$action_rename_file"
 chmod a+x "$action_rename_file"
 touch "$action_rename_dir"
 chmod a+x "$action_rename_dir"
-touch "$action_make_dir"
-chmod a+x "$action_make_dir"
 
 [[ -w /var/log ]] && ln -sf "$log_file" "/var/log/sync-directory-${cluster_name}.log"
 
@@ -681,7 +693,6 @@ action_rsync_push="${instance_dir}/_action_rsync_push.sh"
 action_remove_force="${instance_dir}/_action_remove_force.sh"
 action_rename_file="${instance_dir}/_action_rename_file.sh"
 action_rename_dir="${instance_dir}/_action_rename_dir.sh"
-action_make_dir="${instance_dir}/_action_make_dir.sh"
 
 # List action result:
 #1 ssh_rsync
@@ -1084,15 +1095,15 @@ doIt() {
         case "$style" in
             ssh_rsync|ssh_rsync_*) #1
                 cat <<EOL >> "$command_file"
-"$action_rsync_push" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" "$relPath2" &
+"$action_rsync_push" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" &
 EOL
-                "$action_rsync_push" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" "$relPath2" &
+                "$action_rsync_push" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" &
                 ;;
             ssh_rm|ssh_rmdir) #2
                 cat <<EOL >> "$command_file"
-"$action_remove_force" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" "$relPath2" &
+"$action_remove_force" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" &
 EOL
-                "$action_remove_force" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" "$relPath2" &
+                "$action_remove_force" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" &
                 ;;
             ssh_rename_file|ssh_mv_file) #3, #6
                 cat <<EOL >> "$command_file"
@@ -1108,9 +1119,9 @@ EOL
                 ;;
             ssh_mkdir|ssh_mkdir_parents) #5
                 cat <<EOL >> "$command_file"
-"$action_make_dir" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" "$relPath2" &
+ssh "$hostname" 'mkdir -p "'"${remote_dir}{relPath1}"'"' &
 EOL
-                "$action_make_dir" "$mydirectory" "$hostname" "$remote_dir" "$relPath1" "$relPath2" &
+                ssh "$hostname" 'mkdir -p "'"${remote_dir}{relPath1}"'"' &
                 ;;
         esac
     done <<< "$REMOTE"
@@ -1166,18 +1177,12 @@ cat <<'EOF' > "$action_remove_force"
 #!/bin/bash
 # Something bisa file atau direktori.
 # Gunakan sleep untuk mengerem command remove file temp.
-mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5"
-tempdir="${hostnamedirectory}.tmp.sync-directory"
-fullpath1="${hostnamedirectory}${relPath1}"
+mydirectory="$1"; hostname="$2"; remote_dir="$3"; relPath1="$4";
+tempdir="${remote_dir}.tmp.sync-directory"
+fullpath1="${remote_dir}${relPath1}"
 dirpath1=$(dirname "$fullpath1")
 basename1=$(basename "$fullpath1")
 temppath1="${dirpath1}/.${basename1}.ignore-this"
-[ -n "$relPath2" ] && {
-    fullpath2="${hostnamedirectory}${relPath2}"
-    dirpath2=$(dirname "$fullpath2")
-    basename2=$(basename "$fullpath2")
-    temppath2="${dirpath2}/.${basename2}.ignore-this"
-}
 ssh "$hostname" '
     touch "'"$temppath1"'"
     rm -rf "'"$fullpath1"'";
@@ -1187,14 +1192,14 @@ ssh "$hostname" '
 EOF
 cat <<'EOF' > "$action_rename_file"
 #!/bin/bash
-mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5"
-tempdir="${hostnamedirectory}.tmp.sync-directory"
-fullpath1="${hostnamedirectory}${relPath1}"
+mydirectory="$1"; hostname="$2"; remote_dir="$3"; relPath1="$4"; relPath2="$5"
+tempdir="${remote_dir}.tmp.sync-directory"
+fullpath1="${remote_dir}${relPath1}"
 dirpath1=$(dirname "$fullpath1")
 basename1=$(basename "$fullpath1")
 temppath1="${dirpath1}/.${basename1}.ignore-this"
 [ -n "$relPath2" ] && {
-    fullpath2="${hostnamedirectory}${relPath2}"
+    fullpath2="${remote_dir}${relPath2}"
     dirpath2=$(dirname "$fullpath2")
     basename2=$(basename "$fullpath2")
     temppath2="${dirpath2}/.${basename2}.ignore-this"
@@ -1225,14 +1230,14 @@ ssh "$hostname" '
 EOF
 cat <<'EOF' > "$action_rename_dir"
 #!/bin/bash
-mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5"
-tempdir="${hostnamedirectory}.tmp.sync-directory"
-fullpath1="${hostnamedirectory}${relPath1}"
+mydirectory="$1"; hostname="$2"; remote_dir="$3"; relPath1="$4"; relPath2="$5"
+tempdir="${remote_dir}.tmp.sync-directory"
+fullpath1="${remote_dir}${relPath1}"
 dirpath1=$(dirname "$fullpath1")
 basename1=$(basename "$fullpath1")
 temppath1="${dirpath1}/.${basename1}.ignore-this"
 [ -n "$relPath2" ] && {
-    fullpath2="${hostnamedirectory}${relPath2}"
+    fullpath2="${remote_dir}${relPath2}"
     dirpath2=$(dirname "$fullpath2")
     basename2=$(basename "$fullpath2")
     temppath2="${dirpath2}/.${basename2}.ignore-this"
@@ -1246,26 +1251,6 @@ ssh "$hostname" '
     sleep 1
     rm -rf "'"$temppath1"'"
     rm -rf "'"$temppath2"'";
-    '
-EOF
-cat <<'EOF' > "$action_make_dir"
-#!/bin/bash
-# mkdir terlalu rumit dan njelimit.
-# jadi kita biarkan terjadi efek berantai.
-mydirectory="$1"; hostname="$2"; hostnamedirectory="$3"; relPath1="$4"; relPath2="$5"
-tempdir="${hostnamedirectory}.tmp.sync-directory"
-fullpath1="${hostnamedirectory}${relPath1}"
-dirpath1=$(dirname "$fullpath1")
-basename1=$(basename "$fullpath1")
-temppath1="${dirpath1}/.${basename1}.ignore-this"
-[ -n "$relPath2" ] && {
-    fullpath2="${hostnamedirectory}${relPath2}"
-    dirpath2=$(dirname "$fullpath2")
-    basename2=$(basename "$fullpath2")
-    temppath2="${dirpath2}/.${basename2}.ignore-this"
-}
-ssh "$hostname" '
-    mkdir -p "'"$fullpath1"'";
     '
 EOF
 # End Bash Script.
