@@ -173,6 +173,8 @@ while IFS= read -r line; do
     line=$(sed 's/^'"$_hostname"'//' <<< "$line")
     [[ "${line:0:1}" == ':' ]] && line="${line:1}"
     _directory=${line}
+    # Autocorrect jika diawali dengan `~/`.
+    [[ "${_directory:0:2}" == '~/' ]] && _directory=${_directory:2}
     # Trailing slash, cegah duplikat.
     # Jika tidak empty string, maka append dengan slash.
     [ -n "$_directory" ] && _directory="${_directory%/}/"
