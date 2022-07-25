@@ -580,6 +580,8 @@ doRsync() {
             rmdir --ignore-fail-on-non-empty "$tempdir"
         fi
     else
+        # Push rsync membutuhkan absolute directory.
+        requireAbsoluteDirectory
         [ ! -f "$action_rsync_push" ] && createShellScript action_rsync_push
         while IFS= read -r hostname; do
             remote_dir="${REMOTE_PATH_ARRAY[$hostname]}"
@@ -677,6 +679,80 @@ EOF
     esac
 }
 
+requireAbsoluteDirectory() {
+    local n i _path _remote _remote_ssh_request _remote_path _remote_path_array home_host_file
+    local _remote_ssh_respond _contents
+    declare -A _remote_path_array
+    for i in "${!REMOTE_PATH_ARRAY[@]}"
+    do
+        _path="${REMOTE_PATH_ARRAY[$i]}"
+        if [[ ! ${_path:0:1} == '/' ]];then
+            _remote+="$i"$'\n'
+        else
+            _remote_path_array+=( ["$i"]="$_path" )
+        fi
+    done
+    [ -n "$_remote" ] && _remote=${_remote%$'\n'} || return 0 # trim trailing \n
+
+    [ -n "$_remote" ] && {
+        while IFS= read -r hostname; do
+            home_host_file="${instance_dir}/_home_${hostname}.txt"
+            if [[ -f "$home_host_file" ]];then
+                _contents=$(<"$home_host_file")
+                if [[ ! ${_contents:0:1} == '/' ]];then
+                    echo "Directory of ${hostname} is not absolute path. Skip.">&2
+                else
+                    _remote_path_array+=( ["$hostname"]="$_contents" )
+                fi
+            else
+                _remote_ssh_request+="$hostname"$'\n'
+            fi
+        done <<< "$_remote"
+    } || return 0
+    [ -n "$_remote_ssh_request" ] && _remote_ssh_request=${_remote_ssh_request%$'\n'} # trim trailing \n
+
+    [ -n "$_remote_ssh_request" ] && {
+        prepareDirectory
+        while IFS= read -r hostname; do
+            home_host_file="${instance_dir}/_home_${hostname}.txt"
+            ssh -o StrictHostKeyChecking=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no "$hostname" pwd > "$home_host_file" &
+        done <<< "$_remote_ssh_request"
+        local n=5
+        until [[ $n == 0 ]]; do
+            printf "\r\033[K"  >&2
+            echo -n Waiting $n...  >&2
+            let n--
+            sleep 1
+        done
+        printf "\r\033[K" >&2
+        while IFS= read -r hostname; do
+            home_host_file="${instance_dir}/_home_${hostname}.txt"
+            if [[ -f "$home_host_file" && -s "$home_host_file" ]];then
+                _contents=$(<"$home_host_file")
+                if [[ ! ${_contents:0:1} == '/' ]];then
+                    echo "Directory of ${hostname} is not absolute path. Skip.">&2
+                else
+                    _remote_path_array+=( ["$hostname"]="$_contents" )
+                fi
+            else
+                echo "Directory of ${hostname} failed to set as absolute path. Skip.">&2
+            fi
+        done <<< "$_remote_ssh_request"
+    } || return 0
+    unset REMOTE
+    unset REMOTE_PATH
+    unset REMOTE_PATH_ARRAY
+    declare -A REMOTE_PATH_ARRAY
+    for i in "${!_remote_path_array[@]}"
+    do
+        REMOTE+="${i}"$'\n'
+        REMOTE_PATH+="${i}:${_remote_path_array[$i]}"$'\n'
+        REMOTE_PATH_ARRAY+=( ["${i}"]="${_remote_path_array[$i]}" )
+    done
+    [ -n "$REMOTE" ] && REMOTE=${REMOTE%$'\n'} # trim trailing \n
+    [ -n "$REMOTE_PATH" ] && REMOTE_PATH=${REMOTE_PATH%$'\n'} # trim trailing \n
+}
+
 command="$1"; shift
 
 case "$command" in
@@ -729,6 +805,7 @@ if [[ -n "$all" || -n "$latest" || "${#target[@]}" -gt 0 ]];then
     pull=1
     doRsync
 fi
+requireAbsoluteDirectory
 
 mkdir -p "$instance_dir"
 touch "$queue_file"
