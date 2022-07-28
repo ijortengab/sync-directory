@@ -607,10 +607,9 @@ requireAbsoluteDirectory() {
             fi
         done <<< "$_remote_ssh_request"
     }
-    unset REMOTE
-    unset REMOTE_PATH
-    unset REMOTE_PATH_ARRAY
-    declare -A REMOTE_PATH_ARRAY
+    REMOTE=
+    REMOTE_PATH=
+    REMOTE_PATH_ARRAY=()
     for i in "${!_remote_path_array[@]}"
     do
         REMOTE+="${i}"$'\n'
