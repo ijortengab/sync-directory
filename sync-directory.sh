@@ -417,6 +417,7 @@ getLatestUpdateHost() {
             ' > "$updated_host_file" &
     done <<< "$REMOTE"
     local n=5
+    echo Get the latest update host. >&2
     until [[ $n == 0 ]]; do
         printf "\r\033[K"  >&2
         echo -n Waiting $n...  >&2
@@ -453,6 +454,9 @@ getLatestUpdateHost() {
     }
 }
 
+# @todo, bikin test bisa parallel.
+# @todo, sehingga saat command start dijalankan, kita bisa kasih option --test
+# yang mana adalah test parallel.
 doTest() {
     local array_list_other
     # hostname tidak boleh mengandung karakter spasi/whitespace.
@@ -507,6 +511,7 @@ checkFile() {
     local n=3
     [ -n "$1" ] || { echo "Argument dibutuhkan.">&2; exit 1; }
     [[ -n $2 && $2 -gt 3 ]] && n=$2
+    echo Check file existing. >&2
     until [[ $n == 0 ]]; do
         printf "\r\033[K" >&2
         echo -n Waiting $n...  >&2
@@ -718,6 +723,7 @@ requireAbsoluteDirectory() {
             ssh -o StrictHostKeyChecking=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no "$hostname" pwd > "$home_host_file" &
         done <<< "$_remote_ssh_request"
         local n=5
+        echo Rebuild path to absolute. >&2
         until [[ $n == 0 ]]; do
             printf "\r\033[K"  >&2
             echo -n Waiting $n...  >&2
