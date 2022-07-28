@@ -414,7 +414,8 @@ doRsync() {
             }
         fi
     fi
-    [ -n "$_remote" ] && _remote=${_remote%$'\n'} || return 1 # trim trailing \n
+    [ -n "$_remote" ] && _remote=${_remote%$'\n'} || \
+        { echo "Target not defined. You may set options: --all, --latest, or --target(-t).">&2; exit 1; } # trim trailing \n
 
     # Execute.
     set -- "${rsync_args[@]}"
@@ -567,7 +568,7 @@ requireAbsoluteDirectory() {
                 if [[ ! ${_contents:0:1} == '/' ]];then
                     echo "Directory of ${hostname} is not absolute path. Skip.">&2
                 else
-                    _remote_path_array+=( ["$hostname"]="$_contents" )
+                    _remote_path_array+=( ["$hostname"]="${_contents}/${REMOTE_PATH_ARRAY[$hostname]}" )
                 fi
             else
                 _remote_ssh_request+="$hostname"$'\n'
@@ -599,13 +600,13 @@ requireAbsoluteDirectory() {
                 if [[ ! ${_contents:0:1} == '/' ]];then
                     echo "Directory of ${hostname} is not absolute path. Skip.">&2
                 else
-                    _remote_path_array+=( ["$hostname"]="$_contents" )
+                    _remote_path_array+=( ["$hostname"]="${_contents}/${REMOTE_PATH_ARRAY[$hostname]}" )
                 fi
             else
                 echo "Directory of ${hostname} failed to set as absolute path. Skip.">&2
             fi
         done <<< "$_remote_ssh_request"
-    } || return 0
+    }
     unset REMOTE
     unset REMOTE_PATH
     unset REMOTE_PATH_ARRAY
