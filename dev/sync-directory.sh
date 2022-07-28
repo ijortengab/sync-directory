@@ -1131,9 +1131,9 @@ EOL
                 ;;
             ssh_mkdir|ssh_mkdir_parents) #5
                 cat <<EOL >> "$command_file"
-ssh "$hostname" 'mkdir -p "'"${remote_dir}{relPath1}"'"' &
+ssh "$hostname" 'mkdir -p "'"${remote_dir}${relPath1}"'"' &
 EOL
-                ssh "$hostname" 'mkdir -p "'"${remote_dir}{relPath1}"'"' &
+                ssh "$hostname" 'mkdir -p "'"${remote_dir}${relPath1}"'"' &
                 ;;
         esac
     done <<< "$REMOTE"
