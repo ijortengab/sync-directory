@@ -663,6 +663,16 @@ case "$command" in
         doRsync
         exit
         ;;
+    pull)
+        parseRsyncCommand --pull --all
+        doRsync
+        exit
+        ;;
+    push)
+        parseRsyncCommand --push --all
+        doRsync
+        exit
+        ;;
     *)
         echo Command available: test, start, status, stop, update, restart, get, rsync. >&2
         exit 1

@@ -16,6 +16,8 @@ OPERAND=(
     restart
     get
     rsync
+    push
+    pull
 )
 VALUE=(
     '--myname|-n'
