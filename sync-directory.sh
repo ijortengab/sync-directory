@@ -90,7 +90,7 @@ while [[ $# -gt 0 ]]; do
         --remote-dir-file=*|-f=*) remote_dir_file="${1#*=}"; shift ;;
         --remote-dir-file|-f) if [[ ! $2 == "" && ! $2 =~ ^-[^-] ]]; then remote_dir_file="$2"; shift; fi; shift ;;
         --[^-]*) shift ;;
-        test|start|status|stop|update|restart|get|rsync)
+        test|start|status|stop|update|restart|get|rsync|push|pull)
             while [[ $# -gt 0 ]]; do
                 case "$1" in
                     *) _new_arguments+=("$1"); shift ;;
@@ -119,7 +119,7 @@ while [[ $# -gt 0 ]]; do
             done
             shift "$((OPTIND-1))"
             ;;
-        test|start|status|stop|update|restart|get|rsync)
+        test|start|status|stop|update|restart|get|rsync|push|pull)
             while [[ $# -gt 0 ]]; do
                 case "$1" in
                     *) _new_arguments+=("$1"); shift ;;
@@ -797,6 +797,16 @@ case "$command" in
         ;;
     rsync)
         parseRsyncCommand "$@"
+        doRsync
+        exit
+        ;;
+    pull)
+        parseRsyncCommand --pull --all
+        doRsync
+        exit
+        ;;
+    push)
+        parseRsyncCommand --push --all
         doRsync
         exit
         ;;
